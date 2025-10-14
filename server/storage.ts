@@ -51,6 +51,7 @@ export interface IStorage {
   getProposalsByClient(clientId: string): Promise<Proposal[]>;
   createProposal(proposal: InsertProposal): Promise<Proposal>;
   updateProposal(id: string, proposal: Partial<InsertProposal>): Promise<Proposal | undefined>;
+  convertProposalToBooking(proposalId: string): Promise<Booking>;
   
   // Bookings
   getAllBookings(): Promise<Booking[]>;
@@ -237,6 +238,38 @@ export class DatabaseStorage implements IStorage {
   async updateProposal(id: string, proposalData: Partial<InsertProposal>): Promise<Proposal | undefined> {
     const [proposal] = await db.update(schema.proposals).set(proposalData).where(eq(schema.proposals.id, id)).returning();
     return proposal;
+  }
+
+  async convertProposalToBooking(proposalId: string): Promise<Booking> {
+    const proposal = await this.getProposal(proposalId);
+    if (!proposal) {
+      throw new Error("Proposal not found");
+    }
+    
+    if (proposal.status !== "accepted") {
+      throw new Error("Only accepted proposals can be converted to bookings");
+    }
+
+    const existingBooking = await db.select().from(schema.bookings).where(eq(schema.bookings.proposalId, proposalId)).limit(1);
+    if (existingBooking.length > 0) {
+      throw new Error("Booking already exists for this proposal");
+    }
+
+    const booking: InsertBooking = {
+      clientId: proposal.clientId,
+      proposalId: proposal.id,
+      title: proposal.title,
+      eventType: "event",
+      status: "confirmed",
+      startTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default to 1 week from now
+      endTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000), // 4 hours duration
+      venueName: "",
+      venueAddress: "",
+      packageTotal: proposal.amount,
+      balanceDue: proposal.amount,
+    };
+
+    return this.createBooking(booking);
   }
 
   // Bookings

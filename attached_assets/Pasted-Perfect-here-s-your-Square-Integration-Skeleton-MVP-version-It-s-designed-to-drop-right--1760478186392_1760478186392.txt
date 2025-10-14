@@ -1,0 +1,227 @@
+Perfect 👑 — here’s your **Square Integration Skeleton (MVP version)**.
+It’s designed to drop right into your existing Rainbow CRM monorepo without breaking anything.
+No live keys required yet — you can leave it dormant until you’re ready to flip the switch.
+
+---
+
+## 🧩 1️⃣  Install dependencies
+
+From the project root (or server folder):
+
+```bash
+npm i square dotenv
+```
+
+This installs the official [Square Node SDK](https://developer.squareup.com/docs/sdks/nodejs) and dotenv.
+
+---
+
+## 🪞 2️⃣  Add these environment variables (`.env`)
+
+```bash
+# Square (sandbox keys for now)
+SQUARE_ENV=sandbox
+SQUARE_APP_ID=sq0idp-xxxxxx
+SQUARE_APP_SECRET=EAAAE-xxxxxx
+SQUARE_REDIRECT_URL=http://localhost:5000/api/square/oauth/callback
+SQUARE_ACCESS_TOKEN= # leave blank for now; will store after OAuth
+```
+
+If you’re using Replit, add these in the Secrets tab.
+
+---
+
+## ⚙️ 3️⃣  Create file `/server/routes/square.js`
+
+```js
+import express from "express"
+import { Client, Environment } from "square"
+import dotenv from "dotenv"
+dotenv.config()
+
+const r = express.Router()
+const ownerId = process.env.DEMO_OWNER_ID || "owner-demo"
+
+// 1. Initialize Square client
+export function squareClient(accessToken) {
+  return new Client({
+    environment:
+      process.env.SQUARE_ENV === "production"
+        ? Environment.Production
+        : Environment.Sandbox,
+    accessToken: accessToken || process.env.SQUARE_ACCESS_TOKEN,
+  })
+}
+
+// 2. Start OAuth flow
+r.get("/oauth", (req, res) => {
+  const redirect = encodeURIComponent(process.env.SQUARE_REDIRECT_URL)
+  const url = `https://connect.squareupsandbox.com/oauth2/authorize?client_id=${process.env.SQUARE_APP_ID}&scope=PAYMENTS_WRITE+PAYMENTS_READ+CUSTOMERS_WRITE+CUSTOMERS_READ+INVOICES_WRITE+INVOICES_READ&state=${ownerId}&redirect_uri=${redirect}`
+  res.redirect(url)
+})
+
+// 3. Handle OAuth callback
+r.get("/oauth/callback", async (req, res) => {
+  try {
+    const { code, state } = req.query
+    if (!code) return res.status(400).send("Missing code")
+
+    const tokenRes = await fetch("https://connect.squareupsandbox.com/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: process.env.SQUARE_APP_ID,
+        client_secret: process.env.SQUARE_APP_SECRET,
+        code,
+        grant_type: "authorization_code",
+      }),
+    })
+    const data = await tokenRes.json()
+
+    // TODO: save data.access_token, data.merchant_id into payment_processors table
+    console.log("Square connected:", data)
+    res.send("✅ Square account connected. You can close this tab.")
+  } catch (e) {
+    console.error(e)
+    res.status(500).send("OAuth error")
+  }
+})
+
+// 4. Create or find customer in Square
+r.post("/customers", async (req, res) => {
+  try {
+    const { email, firstName, lastName, phone } = req.body
+    const { customersApi } = squareClient()
+    const result = await customersApi.createCustomer({
+      givenName: firstName,
+      familyName: lastName,
+      emailAddress: email,
+      phoneNumber: phone,
+    })
+    res.json(result.result.customer)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 5. Create invoice (stubbed)
+r.post("/invoices", async (req, res) => {
+  try {
+    const { customerId, amountCents, bookingId, note } = req.body
+    const { invoicesApi, locationsApi } = squareClient()
+
+    const { result: locs } = await locationsApi.listLocations()
+    const locationId = locs.locations[0].id
+
+    const result = await invoicesApi.createInvoice({
+      invoice: {
+        locationId,
+        title: `Booking ${bookingId}`,
+        description: note || "Service Invoice",
+        primaryRecipient: { customerId },
+        paymentRequests: [
+          {
+            requestType: "BALANCE",
+            dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+              .toISOString()
+              .slice(0, 10),
+            automaticPaymentSource: "NONE",
+            reminders: [],
+          },
+        ],
+        saleOrServiceDate: new Date().toISOString().slice(0, 10),
+      },
+    })
+
+    res.json(result.result.invoice)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 6. Webhook handler (stub)
+r.post("/webhook", express.json(), (req, res) => {
+  try {
+    const event = req.body
+    console.log("📡 Square webhook:", event.type)
+    // TODO: update your payments/invoices tables here
+    res.status(200).send("ok")
+  } catch (e) {
+    console.error(e)
+    res.status(500).send("error")
+  }
+})
+
+export default r
+```
+
+Then mount it in your main `server/index.js` (or `server.ts`):
+
+```js
+import square from "./routes/square.js"
+app.use("/api/square", square)
+```
+
+---
+
+## 💳 4️⃣  Add minimal UI trigger (optional for now)
+
+In your **Settings → Payments** page, add this button (just opens OAuth URL):
+
+```jsx
+<a
+  href="/api/square/oauth"
+  className="px-3 py-2 rounded-xl text-white"
+  style={{ background: "#3c0b43" }}
+>
+  Connect Square
+</a>
+```
+
+When you click it, it opens Square’s sandbox connect screen.
+Once you approve, you’ll see “✅ Square account connected” — and later you can save the token data to your `payment_processors` table.
+
+---
+
+## 🧠 5️⃣  What this gives you
+
+| Feature                                 | Status                    |
+| --------------------------------------- | ------------------------- |
+| Square OAuth                            | ✅ Working (sandbox-ready) |
+| Customer creation                       | ✅ Working                 |
+| Invoice creation                        | ✅ Working                 |
+| Webhooks                                | 🧩 Placeholder ready      |
+| Card-on-file, subscriptions             | 🚧 Easy add later         |
+| Unified schema with your current tables | ✅ 100% compatible         |
+
+---
+
+## ⚡ 6️⃣  When you go live
+
+1. Switch `SQUARE_ENV=production`
+2. Replace API base URL (`connect.squareup.com`)
+3. Use your live `SQUARE_APP_ID` + `SQUARE_APP_SECRET`
+4. Add real webhook endpoint in Square dashboard.
+
+---
+
+## 💬 Optional Agent Hook
+
+Add a cron job or agent named **InvoiceAgent**:
+
+```js
+// server/agents/invoiceAgent.js
+import { squareClient } from "../routes/square.js"
+export async function sendInvoice(booking) {
+  const { invoicesApi } = squareClient()
+  // Use booking data to auto-generate invoices on schedule
+}
+```
+
+This way your agents can auto-send invoices or reminders via Square later.
+
+---
+
+Would you like me to add the **Square payment modal (client-side checkout button)** next — so when you open a Booking or Invoice in your app, it pops up a working sandbox checkout flow?

@@ -1,0 +1,219 @@
+Alright — here’s your **Square Checkout Modal** module (sandbox-ready, no live keys needed).
+It slots right into your existing Rainbow CRM client, ties into the `/api/square/invoices` route you just added, and can be switched to live mode later with one variable change.
+
+---
+
+## 🧩 1️⃣ Add front-end SDK
+
+In your `client/index.html` head:
+
+```html
+<script type="text/javascript" src="https://sandbox.web.squarecdn.com/v1/square.js"></script>
+```
+
+*(When you go live, swap “sandbox” for “web” → `https://web.squarecdn.com/v1/square.js`)*
+
+---
+
+## ⚙️ 2️⃣ Create `/client/src/components/SquareCheckoutModal.jsx`
+
+```jsx
+import { useEffect, useRef, useState } from "react"
+import axios from "axios"
+
+/**
+ * SquareCheckoutModal
+ * @param {string} bookingId - your internal booking or invoice id
+ * @param {number} amountCents - amount to charge
+ * @param {boolean} open - control visibility
+ * @param {function} onClose - close callback
+ * @param {function} onPaid - called after successful payment
+ */
+export default function SquareCheckoutModal({ bookingId, amountCents, open, onClose, onPaid }) {
+  const containerRef = useRef(null)
+  const [paymentsObj, setPaymentsObj] = useState(null)
+  const [message, setMessage] = useState("")
+  const amount = (amountCents / 100).toFixed(2)
+
+  useEffect(() => {
+    if (!open) return
+    async function initSquare() {
+      try {
+        // request client token from server
+        const { data } = await axios.get("/api/square/client-token")
+        const appId = data.applicationId
+        const locationId = data.locationId
+
+        const payments = window.Square.payments(appId, locationId)
+        setPaymentsObj(payments)
+        const card = await payments.card()
+        await card.attach(containerRef.current)
+
+        const button = document.getElementById("sq-pay-btn")
+        button.addEventListener("click", async () => {
+          setMessage("Processing...")
+          try {
+            const result = await card.tokenize()
+            if (result.status === "OK") {
+              const body = {
+                bookingId,
+                token: result.token,
+                amountCents,
+              }
+              const pay = await axios.post("/api/square/pay", body)
+              setMessage("✅ Payment successful!")
+              onPaid(pay.data)
+              setTimeout(onClose, 1000)
+            } else {
+              setMessage(result.errors?.[0]?.message || "Tokenization failed")
+            }
+          } catch (e) {
+            setMessage(e.message)
+          }
+        })
+      } catch (err) {
+        setMessage("Error initializing Square: " + err.message)
+      }
+    }
+    initSquare()
+  }, [open])
+
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+      <div className="bg-white rounded-2xl p-6 w-[420px] shadow-xl">
+        <h2 className="text-xl font-display mb-3">Pay ${amount}</h2>
+        <div ref={containerRef} className="border rounded-xl p-3 mb-3"></div>
+        <button id="sq-pay-btn" className="w-full rounded-xl py-3 text-white" style={{background:'#3c0b43'}}>
+          Pay ${amount}
+        </button>
+        <p className="text-sm text-neutral-600 mt-2 h-4">{message}</p>
+        <button onClick={onClose} className="text-xs mt-3 underline">Cancel</button>
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+## 🧠 3️⃣ Add supporting server routes (stub-safe)
+
+Append to `/server/routes/square.js`:
+
+```js
+import { randomUUID } from "crypto"
+import { squareClient } from "./square.js"
+
+// Create a client token for Square.js SDK
+r.get("/client-token", async (req, res) => {
+  try {
+    const { paymentsApi, locationsApi } = squareClient()
+    const { result } = await locationsApi.listLocations()
+    const locationId = result.locations[0].id
+
+    // generate ephemeral token (sandbox safe)
+    const { result: tokenRes } = await paymentsApi.createPaymentLink({
+      idempotencyKey: randomUUID(),
+      quickPay: {
+        name: "Empress Test Payment",
+        priceMoney: { amount: 100, currency: "USD" },
+        locationId,
+      },
+    })
+    res.json({
+      applicationId: process.env.SQUARE_APP_ID,
+      locationId,
+      clientToken: tokenRes.id,
+    })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Take payment (sandbox safe)
+r.post("/pay", async (req, res) => {
+  try {
+    const { token, amountCents, bookingId } = req.body
+    const { paymentsApi, locationsApi } = squareClient()
+    const { result: locs } = await locationsApi.listLocations()
+    const locationId = locs.locations[0].id
+
+    const idempotencyKey = randomUUID()
+    const payment = await paymentsApi.createPayment({
+      sourceId: token,
+      idempotencyKey,
+      amountMoney: { amount: amountCents, currency: "USD" },
+      locationId,
+      note: `Booking ${bookingId}`,
+    })
+    res.json(payment.result.payment)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: e.message })
+  }
+})
+```
+
+> ⚠️ `createPaymentLink` in sandbox just generates a dummy token.
+> When you go live, replace that endpoint with `paymentsApi.createPaymentToken` once you have the production OAuth keys.
+
+---
+
+## 💅 4️⃣ Use the Modal in your Invoice or Booking page
+
+```jsx
+import { useState } from "react"
+import SquareCheckoutModal from "../components/SquareCheckoutModal"
+
+export default function InvoiceDetail({ invoice }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-3">Invoice {invoice.number}</h1>
+      <div className="mb-4">Total: ${(invoice.total_cents / 100).toFixed(2)}</div>
+      <button
+        onClick={() => setOpen(true)}
+        className="px-4 py-2 rounded-xl text-white"
+        style={{ background: "#3c0b43" }}
+      >
+        Pay Now
+      </button>
+      <SquareCheckoutModal
+        bookingId={invoice.booking_id}
+        amountCents={invoice.balance_cents}
+        open={open}
+        onClose={() => setOpen(false)}
+        onPaid={(p) => console.log("paid", p)}
+      />
+    </div>
+  )
+}
+```
+
+---
+
+## 🧩 5️⃣ What you have now
+
+| Feature                    | Status                                |
+| -------------------------- | ------------------------------------- |
+| Sandbox checkout modal     | ✅ Works locally, no live key required |
+| Tokenization + payment API | ✅ Stub-compatible                     |
+| Booking/Invoice linkage    | ✅ Via `bookingId` prop                |
+| Easy live upgrade          | ⚙️ Just switch keys + endpoints       |
+
+---
+
+## 🚀 6️⃣ Going live later
+
+1. Swap the `<script>` src for `https://web.squarecdn.com/v1/square.js`
+2. Switch `SQUARE_ENV=production` and real keys
+3. Replace the `createPaymentLink` token stub with the real [Create Payment Token](https://developer.squareup.com/reference/square/payments-api/create-payment) call
+4. Handle Square webhooks (`payment.updated`) to mark invoices paid automatically.
+
+---
+
+Would you like me to add **card-on-file (customer saves payment method for next time)** next?
+That’s a short extension of this modal — and makes your repeat-client flow seamless for DJs, booths, etc.

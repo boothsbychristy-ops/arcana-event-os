@@ -322,6 +322,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/proposals/:id/convert-to-booking", async (req, res) => {
+    try {
+      const booking = await storage.convertProposalToBooking(req.params.id);
+      res.json(booking);
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to convert proposal to booking" });
+    }
+  });
+
   // Bookings
   app.get("/api/bookings", async (req, res) => {
     try {

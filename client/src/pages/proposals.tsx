@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, FileText } from "lucide-react";
+import { Plus, FileText, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLocation } from "wouter";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,7 @@ const proposalFormSchema = insertProposalSchema.extend({
 export default function Proposals() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const { data: proposals, isLoading } = useQuery({
     queryKey: ["/api/proposals"],
@@ -56,12 +58,36 @@ export default function Proposals() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("/api/proposals", "POST", data),
+    mutationFn: (data: any) => apiRequest("POST", "/api/proposals", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
       toast({ title: "Proposal created successfully" });
       setDialogOpen(false);
       form.reset();
+    },
+  });
+
+  const convertToBookingMutation = useMutation({
+    mutationFn: async (proposalId: string) => {
+      const res = await apiRequest("POST", `/api/proposals/${proposalId}/convert-to-booking`);
+      return res.json();
+    },
+    onSuccess: (booking) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/proposals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ 
+        title: "Success!", 
+        description: "Booking created from proposal" 
+      });
+      setLocation("/bookings");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to convert proposal to booking",
+        variant: "destructive",
+      });
     },
   });
 
@@ -196,7 +222,21 @@ export default function Proposals() {
                     <p className="text-sm text-muted-foreground">{proposal.description}</p>
                     <p className="text-lg font-bold mt-2">${parseFloat(proposal.amount).toLocaleString()}</p>
                   </div>
-                  <Button variant="outline" size="sm">View Details</Button>
+                  <div className="flex gap-2">
+                    {proposal.status === "accepted" && (
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        onClick={() => convertToBookingMutation.mutate(proposal.id)}
+                        disabled={convertToBookingMutation.isPending}
+                        data-testid={`button-convert-${proposal.id}`}
+                      >
+                        <Check className="h-4 w-4 mr-1" />
+                        {convertToBookingMutation.isPending ? "Converting..." : "Convert to Booking"}
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm">View Details</Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
