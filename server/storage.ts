@@ -141,6 +141,9 @@ export interface IStorage {
     activeProposals: number;
     upcomingBookings: number;
     pendingTasks: number;
+    noStaffAssigned: number;
+    unpaidInvoices: number;
+    openDeliverables: number;
   }>;
   getRevenueByMonth(): Promise<Array<{ month: string; revenue: number }>>;
 }
@@ -554,6 +557,9 @@ export class DatabaseStorage implements IStorage {
     activeProposals: number;
     upcomingBookings: number;
     pendingTasks: number;
+    noStaffAssigned: number;
+    unpaidInvoices: number;
+    openDeliverables: number;
   }> {
     const invoices = await db.select().from(schema.invoices);
     const totalRevenue = invoices.reduce((sum, inv) => sum + Number(inv.amountPaid), 0);
@@ -567,11 +573,27 @@ export class DatabaseStorage implements IStorage {
     const pendingTasks = await db.select().from(schema.tasks)
       .where(eq(schema.tasks.status, "todo"));
 
+    // Count bookings with no staff assigned
+    const allBookings = await db.select().from(schema.bookings);
+    const bookingStaffAssignments = await db.select().from(schema.bookingStaff);
+    const bookingsWithStaff = new Set(bookingStaffAssignments.map(bs => bs.bookingId));
+    const noStaffAssigned = allBookings.filter(b => !bookingsWithStaff.has(b.id)).length;
+
+    // Count unpaid invoices (status != 'paid' and balance > 0)
+    const unpaidInvoices = invoices.filter(inv => inv.status !== "paid" && Number(inv.balance) > 0).length;
+
+    // Count open deliverables (all deliverables for now - schema doesn't have status)
+    const deliverables = await db.select().from(schema.deliverables);
+    const openDeliverables = deliverables.length;
+
     return {
       totalRevenue,
       activeProposals: activeProposals.length,
       upcomingBookings: upcomingBookings.length,
       pendingTasks: pendingTasks.length,
+      noStaffAssigned,
+      unpaidInvoices,
+      openDeliverables,
     };
   }
 

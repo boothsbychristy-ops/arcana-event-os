@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DollarSign, FileText, Calendar, CheckSquare } from "lucide-react";
+import { DollarSign, FileText, Calendar, CheckSquare, Users, Receipt, Package } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { ErrorState } from "@/components/error-state";
 
@@ -70,6 +70,24 @@ export default function Dashboard() {
       value: stats?.pendingTasks || "0",
       icon: CheckSquare,
       color: "text-status-expired",
+    },
+    {
+      title: "No Staff Assigned",
+      value: stats?.noStaffAssigned || "0",
+      icon: Users,
+      color: "text-status-expired",
+    },
+    {
+      title: "Unpaid Invoices",
+      value: stats?.unpaidInvoices || "0",
+      icon: Receipt,
+      color: "text-status-expired",
+    },
+    {
+      title: "Open Deliverables",
+      value: stats?.openDeliverables || "0",
+      icon: Package,
+      color: "text-muted-foreground",
     },
   ];
 
