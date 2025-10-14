@@ -1,0 +1,84 @@
+Perfect call 💅 — that actually fits your ecosystem better anyway.
+Square’s API is friendlier for service-based businesses, especially event pros — it handles invoices, card-on-file, and even in-person payments in one system (and you already sit squarely in that lane: photo-booths, DJs, mobile bartenders).
+
+Let’s reframe your payment roadmap around **Square-first** integration so everything you build now stays compatible:
+
+---
+
+## 🧩 Step 1 — Keep using the *stubbed* payment layer
+
+Everything that currently talks to “/api/payments” can stay exactly the same.
+We’ll just swap the backend adapter from Stripe to Square later.
+
+**Right now:**
+
+* Save the method as `"square"`, `"manual"`, `"venmo"`, etc.
+* Mark invoices as `paid` / `partial` manually or through a fake endpoint.
+  This lets you keep testing Booking → Invoice → Payment without getting API-key headaches.
+
+---
+
+## 💳 Step 2 — When you’re ready, plug in Square
+
+| Part                  | What it does                                                                         | How we’ll wire it                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| **Square OAuth**      | Let you (and future sub-accounts) connect their Square account.                      | `/api/square/auth` → Square OAuth → save merchant id + token in `payment_processors` table. |
+| **Square Customers**  | Create or find client profiles in Square.                                            | `square.customers.create({ email, name, phone })`                                           |
+| **Invoices/Payments** | Create a Square “invoice” or take payment directly from your Rainbow CRM invoice UI. | `square.invoicesApi.createInvoice` using your stored customer id + line items.              |
+| **Card-on-file**      | Store card token for repeat clients.                                                 | Square securely stores it; you just keep the `customerCardId`.                              |
+| **Webhooks**          | Square notifies your API when a payment succeeds.                                    | `/api/square/webhook` updates your own `payments` table + invoice status.                   |
+
+**Libraries:**
+
+```bash
+npm i square
+```
+
+You’ll get fully typed SDKs for both REST and Webhook validation.
+
+---
+
+## 🧱 Step 3 — Square-ready schema (already fits)
+
+Your `payment_processors`, `payment_methods`, `payment_settings`, and `payments` tables already cover all the columns we need:
+
+* `processor` → `'square'`
+* `processor_ref` → Square invoice/payment id
+* `meta` → JSON payload (status, receipt URL, etc.)
+
+So no migrations required; it drops right in.
+
+---
+
+## ⚙️ Step 4 — Automation & Agents
+
+Once Square is live you can tie your **agents** into it easily:
+
+* `InvoiceAgent`: when a booking is marked confirmed → create Square invoice.
+* `ReminderAgent`: polls Square API nightly for unpaid invoices → sends Twilio/Mailgun reminder.
+* `PaymentAgent`: listens to Square webhooks → posts internal notification and marks invoice paid.
+
+Replit can host those cron jobs or webhook endpoints natively.
+
+---
+
+## 🪩 Step 5 — Optional Mirror-Layer Integration
+
+Later, the Mirror Marketplace can accept the same Square checkout tokens via the same OAuth connection, meaning:
+
+* One Square account = one unified payment stack for CRM + Marketplace.
+* You never touch Stripe if you don’t want to.
+
+---
+
+## TL;DR
+
+✅ Keep stubs for now
+✅ Build UI & flows around generic “processor” field
+🟣 When ready, install Square SDK and drop in auth + invoice endpoints
+🪞 Agents + webhooks will finalize the loop
+
+---
+
+Would you like me to give you the **ready-to-paste Square integration skeleton** next (OAuth route, create-invoice route, webhook handler, and a minimal client payment modal)?
+It’ll stay dormant until you plug in real keys but makes the switch instant later.

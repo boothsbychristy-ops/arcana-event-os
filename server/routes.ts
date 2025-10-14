@@ -21,12 +21,119 @@ import {
   insertPrivacySettingsSchema,
   insertTaskSchema,
   insertMessageSchema,
+  loginSchema,
+  signupSchema,
 } from "@shared/schema";
+import {
+  hashPassword,
+  comparePassword,
+  generateToken,
+  authMiddleware,
+  type AuthRequest,
+} from "./auth";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
+  // Authentication
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const data = signupSchema.parse(req.body);
+      
+      // Check if user already exists
+      const existingUser = await storage.getUserByEmail(data.email);
+      if (existingUser) {
+        return res.status(400).json({ error: "Email already registered" });
+      }
+
+      const existingUsername = await storage.getUserByUsername(data.username);
+      if (existingUsername) {
+        return res.status(400).json({ error: "Username already taken" });
+      }
+
+      // Hash password
+      const hashedPassword = await hashPassword(data.password);
+
+      // Create user
+      const user = await storage.createUser({
+        username: data.username,
+        email: data.email,
+        password: hashedPassword,
+        fullName: data.fullName,
+        role: data.role,
+      });
+
+      // Generate token
+      const token = generateToken(user);
+
+      // Return user data without password
+      const { password, ...userWithoutPassword } = user;
+      res.json({ user: userWithoutPassword, token });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create account" });
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const data = loginSchema.parse(req.body);
+
+      // Find user by email
+      const user = await storage.getUserByEmail(data.email);
+      if (!user) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Check password
+      const validPassword = await comparePassword(data.password, user.password);
+      if (!validPassword) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      // Generate token
+      const token = generateToken(user);
+
+      // Return user data without password
+      const { password, ...userWithoutPassword } = user;
+      res.json({ user: userWithoutPassword, token });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to login" });
+    }
+  });
+
+  app.get("/api/auth/me", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const user = await storage.getUser(req.user.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const { password, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch user" });
+    }
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    // Client-side will remove the token
+    res.json({ success: true });
+  });
+
+  // Apply auth middleware to all routes below this point
+  app.use("/api/*", authMiddleware);
+  
   // Dashboard
-  app.get("/api/dashboard/stats", async (req, res) => {
+  app.get("/api/dashboard/stats", async (req: AuthRequest, res) => {
     try {
       const stats = await storage.getDashboardStats();
       res.json(stats);
