@@ -3,17 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DollarSign, FileText, Calendar, CheckSquare } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { ErrorState } from "@/components/error-state";
 
 export default function Dashboard() {
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, error, refetch } = useQuery({
     queryKey: ["/api/dashboard/stats"],
   });
 
-  const { data: revenue, isLoading: revenueLoading } = useQuery({
+  const { data: revenue, isLoading: revenueLoading, error: revenueError, refetch: refetchRevenue } = useQuery({
     queryKey: ["/api/dashboard/revenue"],
   });
 
-  const { data: upcomingBookings, isLoading: bookingsLoading } = useQuery({
+  const { data: upcomingBookings, isLoading: bookingsLoading, error: bookingsError, refetch: refetchBookings } = useQuery({
     queryKey: ["/api/dashboard/upcoming-bookings"],
   });
 
@@ -28,6 +29,20 @@ export default function Dashboard() {
         </div>
         <Skeleton className="h-80" />
       </div>
+    );
+  }
+
+  if (error || revenueError || bookingsError) {
+    return (
+      <ErrorState
+        title="Error Loading Dashboard"
+        message={(error || revenueError || bookingsError)?.toString() || "Failed to load dashboard data"}
+        onRetry={() => {
+          refetch();
+          refetchRevenue();
+          refetchBookings();
+        }}
+      />
     );
   }
 
