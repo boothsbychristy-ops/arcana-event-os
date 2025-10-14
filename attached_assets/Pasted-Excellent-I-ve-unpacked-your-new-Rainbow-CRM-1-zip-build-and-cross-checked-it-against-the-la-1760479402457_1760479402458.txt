@@ -1,0 +1,115 @@
+Excellent — I’ve unpacked your new **Rainbow-CRM (1).zip** build and cross-checked it against the last working checkpoint Replit described.
+Here’s the **state of your codebase**, what’s complete, what’s partial, and the safest sequence of next steps before you move to payments or integrations.
+
+---
+
+## 🧩 1️⃣  Architecture Snapshot
+
+| Layer               | Current Stack                                        | Notes                                                                                                 |
+| ------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Frontend**        | React + Vite + Tailwind + shadcn/ui + TanStack Query | Clean modular structure (`/pages`, `/components`, `/hooks`). Rainbow theme utilities already present. |
+| **Backend**         | Express + Drizzle ORM + PostgreSQL (Neon)            | Uses typed schemas; auth middleware, proposal/booking/invoice endpoints verified.                     |
+| **Auth**            | JWT + bcrypt                                         | 7-day tokens; login/signup/logout flows pass tests.                                                   |
+| **Routing**         | REST (no GraphQL)                                    | Organized under `/api/*`.                                                                             |
+| **State Mgmt**      | TanStack Query                                       | Ideal for live data invalidation later.                                                               |
+| **CI/Test Harness** | Replit’s internal “test agent”                       | Basic E2E test on proposal→booking flow.                                                              |
+
+---
+
+## ✅ 2️⃣  Confirmed Working Features
+
+| Domain                      | Status | Notes                                                 |
+| --------------------------- | ------ | ----------------------------------------------------- |
+| Login / Logout / Auth Guard | ✅      | JWT verified, middleware working.                     |
+| Clients CRUD                | ✅      | UI + DB sync OK.                                      |
+| Proposals CRUD              | ✅      | Conversion → booking tested successfully.             |
+| Bookings CRUD               | ✅      | Shows up with correct data after proposal acceptance. |
+| Error Handling              | ✅      | `ErrorState` component globally reusable.             |
+| Dashboard Snapshot          | ✅      | Base chart + counters placeholder functioning.        |
+
+---
+
+## ⚙️ 3️⃣  Partially Implemented / Missing
+
+| Area                  | Issue                                                | Fix Strategy                                                               |
+| --------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------- |
+| Toast feedback        | Ephemeral / disappears too fast                      | Add `useToast()` hook and standard durations (4–6 s).                      |
+| Proposal Detail Modal | No detail view from table                            | Create `/components/ProposalModal.jsx`; connect `onRowClick`.              |
+| Staff Assignment      | DB & endpoint exist; UI incomplete                   | Add `Select` + avatar chips; persist via `/api/bookings/:id/assign-staff`. |
+| Invoices UI           | Table only; “generate” & “mark paid” buttons missing | Build inline actions calling existing API.                                 |
+| Tasks Kanban          | Columns render; drag persistence not hooked          | `onDragEnd` → `PATCH /api/tasks/:id` to save new status/index.             |
+| Messages              | Works but no auto-scroll or role filter              | Add `ref.scrollIntoView()` and internal/client filter toggle.              |
+| Deliverables          | Table not present                                    | Simple CRUD table under booking detail.                                    |
+| Design Approval       | Schema absent                                        | Add `designs` table (id, booking_id, title, url, approved).                |
+| Widgets               | No endpoints                                         | `/api/widgets` stub (lead form, gallery).                                  |
+| Dashboard metrics     | Static numbers                                       | Replace with Drizzle aggregate queries.                                    |
+
+---
+
+## 🎨 4️⃣  Aesthetic Layer (ready to apply)
+
+* **Gradient theme:** `from-fuchsia-500 via-rose-400 to-amber-300` for navbar + CTA buttons.
+* **Card polish:** `rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] bg-white/70 backdrop-blur-md`.
+* **Consistent iconography:** import from `lucide-react`.
+* **Mobile breakpoints:** test `<768px` for bookings grid and sidebar collapse.
+
+*(You can centralize these in `/client/src/styles/theme.css` to simplify updates.)*
+
+---
+
+## 🧠 5️⃣  Recommended Sprint Order  (feature-first, no external APIs)
+
+| Sprint                             | Title                                       | Focus                                     |
+| ---------------------------------- | ------------------------------------------- | ----------------------------------------- |
+| **3 — UX Polish**                  | Toasts, Proposal Modal, Redirect            | Fix transient feedback & navigation flow. |
+| **4 — Staff + Invoice UI**         | Staff picker + “Generate/Mark Paid” buttons | Full booking → invoice workflow.          |
+| **5 — Deliverables + Design Tabs** | New tabs inside booking detail              | Proof of upload/approval logic.           |
+| **6 — Dashboard Metrics**          | Revenue, counters, chart aggregation        | Drizzle SQL aggregates.                   |
+| **7 — Widgets & Forms**            | Lead form + gallery embed endpoints         | Pure Express + iframe.                    |
+| **8 — Calendar View**              | Render bookings monthly                     | Use `react-big-calendar`; no OAuth yet.   |
+
+---
+
+## 🧾 6️⃣  Data Hygiene Checklist
+
+Run this once before adding more tables:
+
+```bash
+npm run db:push
+npm run db:seed
+```
+
+Confirm seed inserts:
+
+* 2 clients
+* 2 staff
+* 2 proposals (1 accepted → booking)
+* 2 bookings
+* 1 invoice open, 1 paid partial
+
+If any fail, update foreign-key ordering in seed script.
+
+---
+
+## 🪞 7️⃣  Longer-Term Hooks (after feature freeze)
+
+* Add `agents/` folder for cron + event-based jobs (invoice reminders, backups).
+* Swap payment stubs → Square SDK later.
+* Twilio + Mailgun integration (after all UX stable).
+* OAuth Calendar & PWA wrapper.
+* Mirror Marketplace connection (shared auth + branding).
+
+---
+
+## 🧭  8️⃣  Suggested Next Steps for You in Asana
+
+1. Create **Section 1: QA & UX Polish** → tasks for toasts, redirect, modal.
+2. **Section 2: Bookings / Invoices Flow** → staff, invoice generation.
+3. **Section 3: New Tabs** → Deliverables + Designs.
+4. **Section 4: Metrics & Dashboard.**
+5. Leave **Integrations** as future section (Square, Twilio, etc.).
+
+---
+
+Would you like me to generate a **Sprint 3 task list** (titles + acceptance criteria) that you can paste directly into Asana?
+It’ll match this roadmap and use plain task language (no dev jargon).

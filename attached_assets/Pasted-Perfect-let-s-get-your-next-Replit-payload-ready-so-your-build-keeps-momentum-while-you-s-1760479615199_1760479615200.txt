@@ -1,0 +1,119 @@
+Perfect 🪞💻 — let’s get your **next Replit payload** ready so your build keeps momentum while you set up Asana.
+
+This payload is **Sprint 3: UX Polish + Proposal Modal + Redirect**, designed to make the app *feel finished* before you expand any deeper.
+
+---
+
+# 🧩 **Replit Payload — “Rainbow CRM Sprint 3”**
+
+### **Objective**
+
+Enhance user experience and visual polish by adding proper toast notifications, a proposal-detail modal, redirect logic, and foundational styling updates (Empress rainbow aesthetic).
+No external APIs or payments yet — only front-end + UX improvements.
+
+---
+
+## ✅ **Features to Implement**
+
+### **1. Toast Notification System**
+
+**Goal:** Replace ephemeral success messages with reusable toasts across the app.
+**Implementation:**
+
+* Use `shadcn/ui`’s `use-toast` hook or create `/client/src/hooks/useToast.js`.
+* Default timing: **5 seconds**.
+* Support types: `success`, `error`, `info`.
+* Trigger on:
+
+  * Login success/failure
+  * Proposal accepted / converted to booking
+  * Invoice marked paid
+  * Task saved
+  * Staff assigned
+
+---
+
+### **2. Proposal Detail Modal**
+
+**Goal:** View & convert proposals directly from the Proposals page.
+**Implementation:**
+
+* Add `/client/src/components/ProposalModal.jsx`.
+* Opens when clicking a proposal row.
+* Shows client, package, amount, expiration, and status chip.
+* Includes **“Accept & Convert to Booking”** button.
+* Calls `PATCH /api/proposals/:id` → status `accepted` → triggers booking creation.
+* On success: close modal → toast “Booking created successfully!” → redirect to that booking’s detail page.
+
+---
+
+### **3. Redirect Logic After Conversion**
+
+**Goal:** Immediately take the user to the newly created booking.
+**Implementation:**
+
+* After successful conversion response `{ booking_id }`, run
+
+  ```js
+  navigate(`/bookings/${booking_id}`)
+  ```
+* Verify route loads booking detail page with data populated.
+
+---
+
+### **4. Visual Theme Updates (Rainbow Gradient Aesthetic)**
+
+**Goal:** Bring UI in line with Empress AI Studio’s look.
+**Implementation:**
+
+* Add gradient background to navbar:
+
+  ```css
+  bg-gradient-to-r from-fuchsia-500 via-rose-400 to-amber-300
+  ```
+* Buttons: same gradient, white text, `hover:opacity-90`.
+* Cards: `rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] bg-white/70 backdrop-blur-md`.
+* Apply consistent corner radius + spacing (`p-4`, `gap-3`) site-wide.
+
+---
+
+### **5. Minor UX Enhancements**
+
+* **Loading skeletons:** for Proposals & Bookings tables.
+* **Empty state** message: “No proposals yet — send your first quote!”
+* **Navbar logo:** add slot for upload (stub field in `/settings/branding`).
+
+---
+
+## 🧠 **Acceptance Criteria**
+
+| # | Feature                                        | Verified When                      |
+| - | ---------------------------------------------- | ---------------------------------- |
+| 1 | Toasts appear on all key actions               | Persist 4–6 s; styled consistently |
+| 2 | Clicking proposal row opens detail modal       | Displays correct info              |
+| 3 | Accepting proposal redirects to booking detail | No page reload needed              |
+| 4 | Navbar & buttons show rainbow gradient         | Matches design spec                |
+| 5 | Empty/loading states present                   | No blank screens                   |
+
+---
+
+### **Optional Stretch Goals (if Replit finishes early)**
+
+* Animate modal open/close with `framer-motion`.
+* Add gradient-animated border around cards.
+* Implement “Quick Add Client” mini-form in proposal creation modal.
+
+---
+
+### **Expected Deliverables**
+
+* `useToast` hook and `<Toaster />` provider
+* `ProposalModal.jsx`
+* Modified `ProposalsPage.jsx` to trigger modal
+* Gradient theme applied globally
+* Success toast + redirect logic validated by Replit’s test agent
+
+---
+
+If this looks good, I’ll format it into a **ready-to-paste block** for Replit (“Architect Prompt v4”).
+Do you want me to prepare that version next — the one you can drop straight into the Replit builder prompt box?

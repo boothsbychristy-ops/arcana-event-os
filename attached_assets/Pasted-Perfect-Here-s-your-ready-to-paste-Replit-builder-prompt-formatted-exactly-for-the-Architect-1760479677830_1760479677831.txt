@@ -1,0 +1,118 @@
+Perfect. Here’s your **ready-to-paste Replit builder prompt** — formatted exactly for the “Architect / Build with AI” box.
+It continues your existing **Rainbow CRM** repo and starts **Sprint 3 (UX Polish + Proposal Modal + Redirect)** with zero new external APIs.
+
+---
+
+## 🧩 **Replit Builder Prompt — Rainbow CRM Sprint 3**
+
+> **Project name:** Rainbow CRM — Sprint 3: UX Polish & Proposal Flow
+> **Goal:** Improve usability and visual polish; add consistent toast feedback, a proposal-detail modal, redirect logic, and rainbow gradient theming.
+> **Environment:** keep same stack (React + Vite + Tailwind + shadcn/ui + Express + Drizzle + PostgreSQL).
+> **Do not** add Stripe, Twilio, or Mailgun yet.
+
+---
+
+### 1️⃣ Toast Notification System
+
+* Create a global toast hook in `/client/src/hooks/useToast.js` using `shadcn/ui`’s `use-toast` provider.
+* Add `<Toaster />` at the root of `App.jsx`.
+* Default duration = 5 s; types: success, error, info.
+* Fire toast events on:
+
+  * Login success / error
+  * Proposal accepted → booking created
+  * Invoice marked paid
+  * Staff assigned
+  * Task saved
+
+---
+
+### 2️⃣ Proposal Detail Modal
+
+* New component `/client/src/components/ProposalModal.jsx`
+
+  * Opens when user clicks a row in Proposals table.
+  * Shows client name, package, price, status chip, expiration.
+  * Buttons: **Close** and **Accept & Convert to Booking**.
+  * On accept:
+
+    ```js
+    await axios.patch(`/api/proposals/${id}`, { status: 'accepted' })
+    toast.success('Booking created successfully!')
+    navigate(`/bookings/${booking_id}`)
+    ```
+  * Use `framer-motion` for subtle fade/scale animation (optional).
+
+---
+
+### 3️⃣ Redirect After Conversion
+
+* Modify proposal conversion handler so user lands on the new booking detail automatically.
+* Confirm booking data loads correctly from API.
+
+---
+
+### 4️⃣ Visual Theme Updates (Rainbow Gradient)
+
+Apply Empress AI Studio aesthetic globally:
+
+| Element        | Style                                                                           |
+| -------------- | ------------------------------------------------------------------------------- |
+| Navbar         | `bg-gradient-to-r from-fuchsia-500 via-rose-400 to-amber-300 text-white`        |
+| Buttons        | Same gradient, white text, `hover:opacity-90`, `rounded-xl px-4 py-2`           |
+| Cards          | `rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] bg-white/70 backdrop-blur-md` |
+| Typography     | Use `font-display` for headings (24 px +)                                       |
+| Mobile Layouts | Ensure cards stack vertically < 768 px                                          |
+
+---
+
+### 5️⃣ Minor UX Enhancements
+
+* Add skeleton loaders for Proposals & Bookings tables.
+* Add empty-state placeholders (“No proposals yet — send your first quote”).
+* Add branding upload stub in Settings → Branding tab (`logo_url`, `primary_color`).
+
+---
+
+### 6️⃣ Acceptance Criteria
+
+1. Toasts display and persist ≈ 5 s on key actions.
+2. Clicking a proposal opens detail modal with correct info.
+3. Accepting proposal redirects → booking detail.
+4. Navbar + buttons use rainbow gradient theme.
+5. Empty / loading states visible; no blank screens.
+
+---
+
+### 7️⃣ Stretch Goals (if time left)
+
+* Animate modal open/close with Framer Motion.
+* Gradient border animation around cards.
+* “Quick Add Client” mini-form inside proposal modal.
+
+---
+
+### 8️⃣ Do Not Include Yet
+
+* No payments (Square/Stripe)
+* No SMS or email integrations
+* No OAuth Calendar
+
+---
+
+### ✅ Expected Deliverables
+
+* `/client/src/hooks/useToast.js` + global Toaster
+* `/client/src/components/ProposalModal.jsx`
+* Updated Proposals page with modal trigger + redirect
+* Rainbow gradient theme applied to navbar and buttons
+* Loading & empty states for tables
+
+---
+
+Paste everything above into the Replit “Architect” or “Build with AI” box and run it.
+Replit will detect your existing repo and update only the client/front-end files plus minimal Express routes.
+
+Once it finishes and confirms tests pass (toast + redirect), we’ll move to **Sprint 4: Staff Assignment + Invoice Flow**.
+
+Would you like me to queue that Sprint 4 payload next so it’s ready to drop in right after this one builds?

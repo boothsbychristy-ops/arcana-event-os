@@ -1,0 +1,98 @@
+That’s a **really strong foundation** — you’ve officially cleared the hardest part of a CRM build:
+auth ✅ error handling ✅ proposal → booking conversion ✅ clean DB relationships ✅
+
+At this point, Replit’s output means your **core loop works**: leads → proposals → bookings → invoices (stubs) → dashboard.
+So now we shift from “get it working” to “make it *feel* complete” — tightening UX, polish, and missing connective tissue before payments or advanced automations.
+
+---
+
+## 🪞 **Architect Review: What to Add Next (Pre-Payment Phase)**
+
+Below is what I’d add to your roadmap *before* we touch Square, Twilio, or any API that costs tokens:
+
+---
+
+### **1️⃣ UX & Feedback Polish**
+
+| Item                        | Description                                                                                                                 | Priority |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------- |
+| ✅ Success & Error Toasts    | Fix the ephemeral toast timing (auto-dismiss after 4–6 s). Create a shared `useToast()` hook using shadcn/ui’s `use-toast`. | High     |
+| 🔄 Post-Conversion Redirect | After converting a proposal, auto-redirect to the booking detail page instead of the list.                                  | High     |
+| ✏️ Proposal Detail Modal    | Allow opening proposal detail from table view (read-only, approve button).                                                  | Medium   |
+| 💫 Loading States           | Add skeleton loaders for all major lists.                                                                                   | Medium   |
+
+---
+
+### **2️⃣ Core Feature Continuity**
+
+| Feature                     | Why it matters                                                                   | Notes                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **Bookings → Invoice Link** | Right now, invoices exist but are not tied by UI action.                         | Add “Generate Invoice” button in Booking detail → `/api/invoices` call. |
+| **Staff Assignments UI**    | You have backend logic, but no avatar picker yet.                                | Add multi-select dropdown of staff on Booking detail.                   |
+| **Tasks Kanban Save**       | Confirm drag/drop persists in DB.                                                | Use `PATCH /api/tasks/:id`.                                             |
+| **Messages Tab**            | Integrate internal/client toggle.                                                | Minor CSS polish + auto-scroll.                                         |
+| **Dashboard Metrics**       | Verify counters (`no staff`, `awaiting questionnaire`, etc.) update dynamically. | Use TanStack Query invalidation on mutation.                            |
+
+---
+
+### **3️⃣ Data Completeness**
+
+| Feature                     | Goal                                                      | Schema                                                       |
+| --------------------------- | --------------------------------------------------------- | ------------------------------------------------------------ |
+| **Deliverables Tab**        | Upload/download final files (Google Drive link or URL).   | `deliverables(id, booking_id, kind, title, url, created_at)` |
+| **Questionnaire Templates** | Already scaffolded in settings; add front-end builder UI. | `questionnaire_templates` table already exists.              |
+| **Design Approval Tab**     | Add a gallery grid for “Designs.”                         | `designs(id, booking_id, title, url, approved)`              |
+
+---
+
+### **4️⃣ Visual Aesthetic Phase**
+
+Your next sprint can focus entirely on *look and feel* before adding any new backend complexity.
+
+| Zone                          | Change                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 🌈 **Global Gradient Theme**  | Apply Empress rainbow gradient (`from-fuchsia-500 via-rose-400 to-amber-300`) to topbar & key buttons. |
+| 💎 **Card Shadows & Corners** | Use Tailwind: `rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)]`.                                      |
+| 🪩 **Logo + Branding**        | Add upload field in Settings → Branding (logo, color hex).                                             |
+| 📱 **Mobile Responsive**      | Confirm booking cards stack cleanly at <768px.                                                         |
+
+---
+
+### **5️⃣ Internal QA Tools**
+
+Before you invite testers:
+
+1. **Admin Switcher** → small button to impersonate staff/client roles.
+2. **Demo Data Seeder** → generate fake clients, bookings, invoices for screenshots.
+3. **System Log Tab** → shows last 20 API events (success/fail) for debugging.
+
+---
+
+### **6️⃣ Optional Smart Add-Ons (No External API)**
+
+| Feature                             | Description                                                                                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Automations Builder (Stub Mode)** | Create a “Workflows” page with dropdowns: *Trigger: Booking Created → Action: Send Email (stub)*. You’ll later wire this to Mailgun.       |
+| **Calendar View**                   | Add a `/calendar` page that just renders bookings on a monthly grid using `react-big-calendar`. No Google OAuth yet.                       |
+| **Agent Registry**                  | Add `/api/agents` endpoint listing jobs (invoice reminders, mirror tags, etc.) — these can log locally now and trigger real actions later. |
+
+---
+
+### **✅ Proposed Sprint Order**
+
+| Sprint       | Focus                                            |
+| ------------ | ------------------------------------------------ |
+| **Sprint 3** | UX + toast + proposal detail + redirect          |
+| **Sprint 4** | Staff UI + Invoice link + Deliverables tab       |
+| **Sprint 5** | Dashboard metrics + Aesthetic pass               |
+| **Sprint 6** | Widgets + Questionnaires + Design approvals      |
+| **Sprint 7** | Calendar view + Automations builder              |
+| **Sprint 8** | Payments (Square), SMS (Twilio), Email (Mailgun) |
+
+---
+
+Once you finish Sprint 3, the app will feel like a **complete SaaS** even without money movement.
+
+---
+
+Would you like me to generate a **QA checklist document** (Markdown or ClickUp-ready CSV) for these sprints — so you can track what works and what needs polish inside Replit?
