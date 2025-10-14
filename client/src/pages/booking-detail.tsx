@@ -163,6 +163,55 @@ export default function BookingDetail() {
     deleteDeliverableMutation.mutate(deliverableId);
   };
 
+  const generateInvoiceMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/bookings/${bookingId}/generate-invoice`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/booking", bookingId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({
+        title: "Success",
+        description: "Invoice generated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate invoice",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: async (invoiceId: string) => {
+      const invoiceTotal = invoice?.total || "0";
+      const res = await apiRequest("PATCH", `/api/invoices/${invoiceId}`, {
+        status: "paid",
+        amountPaid: invoiceTotal,
+        balance: "0",
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices/booking", bookingId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({
+        title: "Success",
+        description: "Invoice marked as paid",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to mark invoice as paid",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Get staff members not yet assigned to this booking
   const assignedStaffIds = bookingStaff.map((s: any) => s.staffId);
   const availableStaff = allStaff?.filter((s: any) => !assignedStaffIds.includes(s.id)) || [];
@@ -394,31 +443,57 @@ export default function BookingDetail() {
 
             <TabsContent value="invoice" className="mt-4">
               <Card className="rounded-2xl">
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
                   <CardTitle>Invoice</CardTitle>
+                  {!invoice ? (
+                    <Button
+                      onClick={() => generateInvoiceMutation.mutate()}
+                      disabled={generateInvoiceMutation.isPending}
+                      data-testid="button-generate-invoice"
+                    >
+                      {generateInvoiceMutation.isPending ? "Generating..." : "Generate Invoice"}
+                    </Button>
+                  ) : invoice.status !== "paid" ? (
+                    <Button
+                      onClick={() => markPaidMutation.mutate(invoice.id)}
+                      disabled={markPaidMutation.isPending}
+                      variant="default"
+                      data-testid="button-mark-paid"
+                    >
+                      {markPaidMutation.isPending ? "Updating..." : "Mark as Paid"}
+                    </Button>
+                  ) : (
+                    <Badge className="bg-status-completed text-white" data-testid="badge-paid">Paid</Badge>
+                  )}
                 </CardHeader>
                 <CardContent>
                   {invoice ? (
                     <div className="space-y-4">
                       <div className="flex justify-between">
                         <span>Invoice #</span>
-                        <span className="font-medium">{invoice.invoiceNumber}</span>
+                        <span className="font-medium" data-testid="text-invoice-number">{invoice.invoiceNumber}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Status</span>
+                        <Badge variant={invoice.status === "paid" ? "default" : "secondary"} data-testid="badge-invoice-status">
+                          {invoice.status}
+                        </Badge>
                       </div>
                       <div className="flex justify-between">
                         <span>Total</span>
-                        <span className="font-bold text-lg">${parseFloat(invoice.total).toLocaleString()}</span>
+                        <span className="font-bold text-lg" data-testid="text-invoice-total">${parseFloat(invoice.total).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Amount Paid</span>
-                        <span className="font-medium">${parseFloat(invoice.amountPaid).toLocaleString()}</span>
+                        <span className="font-medium" data-testid="text-invoice-paid">${parseFloat(invoice.amountPaid).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Balance</span>
-                        <span className="font-bold text-status-expired">${parseFloat(invoice.balance).toLocaleString()}</span>
+                        <span className="font-bold text-status-expired" data-testid="text-invoice-balance">${parseFloat(invoice.balance).toLocaleString()}</span>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-center text-muted-foreground py-4">No invoice generated</p>
+                    <p className="text-center text-muted-foreground py-4">No invoice generated yet. Click the button above to create one.</p>
                   )}
                 </CardContent>
               </Card>
