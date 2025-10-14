@@ -1,0 +1,137 @@
+Perfect. 👑
+Here’s your **ready-to-paste Replit Builder Prompt v5** for **Sprint 4: Staff Assignment + Invoice Flow + Deliverables Tab**.
+This continues directly from your current Rainbow CRM (2) build — no external APIs or payment SDKs yet.
+
+---
+
+## 🧩 **Replit Builder Prompt — Rainbow CRM Sprint 4**
+
+> **Goal:** Expand the working CRM into a full event-management workflow by adding staff assignment UI, invoice creation / mark-paid actions, and a deliverables tab inside bookings.
+> **Keep:** same stack (React + Vite + Tailwind + shadcn/ui + Express + Drizzle + PostgreSQL).
+> **Skip:** Square, Twilio, Mailgun – for later.
+
+---
+
+### 1️⃣ Staff Assignment UI
+
+**Objective:** Assign and manage staff directly from each Booking.
+
+**Implementation**
+
+* Add endpoint `POST /api/bookings/:id/assign-staff` → body `{staff_id}` creates record in `staff_assignments`.
+* Add `DELETE /api/bookings/:id/assign-staff/:staff_id` to remove assignment.
+* In Booking Detail page:
+
+  * Render multi-select dropdown of available staff (from `GET /api/staff`).
+  * Show assigned avatars with initials or `avatar_url`.
+  * On save: toast “Staff updated” and update Dashboard counter “No Staff Assigned”.
+
+---
+
+### 2️⃣ Invoice Controls
+
+**Goal:** Allow owners to generate and close invoices without real payments yet.
+
+**Implementation**
+
+* Add button “Generate Invoice” in Booking Detail → `POST /api/invoices` ({ booking_id }) → creates invoice with subtotal = booking.meta.total_cents or 0.
+* Add button “Mark Paid” in Invoice Detail → `PATCH /api/invoices/:id` { status: "paid" }.
+* When status changes → toast “Invoice marked paid” + Dashboard recount.
+* UI shows status chip (open | partial | paid).
+
+---
+
+### 3️⃣ Deliverables Tab
+
+**Purpose:** Track final photos, videos, or links for each booking.
+
+**Database Migration**
+
+```sql
+create table if not exists deliverables (
+  id uuid primary key default gen_random_uuid(),
+  booking_id uuid references bookings(id) on delete cascade,
+  kind text default 'link',
+  title text,
+  url text,
+  created_at timestamptz default now()
+);
+```
+
+**API**
+
+* `GET /api/bookings/:id/deliverables`
+* `POST /api/bookings/:id/deliverables` ({ title, url })
+* `DELETE /api/deliverables/:id`
+
+**UI**
+
+* New tab in Booking Detail → table of deliverables (title + hyperlink).
+* “Add Link” button opens mini-modal (title + URL fields).
+* Toast on save / delete.
+
+---
+
+### 4️⃣ Dashboard Counter Updates
+
+* Add live queries for:
+
+  * `No Staff Assigned` → bookings without rows in staff_assignments.
+  * `Unpaid Invoices` → invoices status ≠ paid.
+  * `Open Deliverables` → bookings without deliverables.
+* Use TanStack Query invalidate on mutations.
+
+---
+
+### 5️⃣ Visual / UX Polish
+
+| Area              | Change                                                                    |
+| ----------------- | ------------------------------------------------------------------------- |
+| Gradient Refactor | Move rainbow utilities to `theme.css` (`.btn-gradient`, `.nav-gradient`). |
+| Cards             | Add soft shadow + rounded-2xl + hover:shadow-md.                          |
+| Modal animation   | Use `framer-motion` spring scale for proposal & deliverables dialogs.     |
+| Toasts            | Add small bounce in/out animation.                                        |
+
+---
+
+### 6️⃣ Acceptance Criteria
+
+| # | Feature                | Verified When                                            |
+| - | ---------------------- | -------------------------------------------------------- |
+| 1 | Staff assignment works | Dropdown saves to DB + avatars render + counter updates. |
+| 2 | Invoice generated      | Invoice record appears + toast shows success.            |
+| 3 | Mark Paid              | Status changes → paid + Dashboard updates.               |
+| 4 | Deliverables tab       | CRUD links persist correctly.                            |
+| 5 | Gradient classes       | Navbar and buttons use shared utilities.                 |
+
+---
+
+### 7️⃣ Stretch Goals (if Replit finishes early)
+
+* Add role permissions (Owner/Admin/Staff).
+* Auto-scroll in Messages tab.
+* Dashboard stats cards for MTD Revenue & Staff Utilization.
+
+---
+
+### 8️⃣ Do Not Include Yet
+
+❌ No Square/Stripe integration
+❌ No SMS or Email automation
+❌ No Google OAuth Calendar
+
+---
+
+### ✅ Expected Deliverables
+
+* New API routes (`/api/bookings/:id/assign-staff`, `/api/bookings/:id/deliverables`, `/api/invoices/:id`)
+* Updated Booking Detail UI (Staff picker + Deliverables tab + Generate/Mark Paid buttons)
+* Dashboard counters refresh live
+* Gradient refactor applied
+
+---
+
+Paste everything above into the Replit “Architect / Build with AI” prompt box and run.
+It will automatically detect your existing schema, apply migrations, and update the front-end without disturbing authentication or proposal logic.
+
+When Replit confirms build success, we’ll prep **Sprint 5: Dashboard Metrics + Analytics Charts** next.

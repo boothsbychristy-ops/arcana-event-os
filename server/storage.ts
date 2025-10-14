@@ -21,6 +21,7 @@ import type {
   PrivacySettings, InsertPrivacySettings,
   Task, InsertTask,
   Message, InsertMessage,
+  Deliverable, InsertDeliverable,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -128,6 +129,11 @@ export interface IStorage {
   getMessagesByAudience(audience: string): Promise<Message[]>;
   createMessage(message: InsertMessage): Promise<Message>;
   markMessageAsRead(id: string): Promise<Message | undefined>;
+  
+  // Deliverables
+  getDeliverablesByBooking(bookingId: string): Promise<Deliverable[]>;
+  createDeliverable(deliverable: InsertDeliverable): Promise<Deliverable>;
+  deleteDeliverable(id: string): Promise<boolean>;
   
   // Dashboard Stats
   getDashboardStats(): Promise<{
@@ -525,6 +531,21 @@ export class DatabaseStorage implements IStorage {
   async markMessageAsRead(id: string): Promise<Message | undefined> {
     const [message] = await db.update(schema.messages).set({ isRead: true }).where(eq(schema.messages.id, id)).returning();
     return message;
+  }
+
+  // Deliverables
+  async getDeliverablesByBooking(bookingId: string): Promise<Deliverable[]> {
+    return db.select().from(schema.deliverables).where(eq(schema.deliverables.bookingId, bookingId)).orderBy(desc(schema.deliverables.createdAt));
+  }
+
+  async createDeliverable(deliverable: InsertDeliverable): Promise<Deliverable> {
+    const [result] = await db.insert(schema.deliverables).values(deliverable).returning();
+    return result;
+  }
+
+  async deleteDeliverable(id: string): Promise<boolean> {
+    const result = await db.delete(schema.deliverables).where(eq(schema.deliverables.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // Dashboard Stats

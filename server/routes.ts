@@ -21,6 +21,7 @@ import {
   insertPrivacySettingsSchema,
   insertTaskSchema,
   insertMessageSchema,
+  insertDeliverableSchema,
   loginSchema,
   signupSchema,
 } from "@shared/schema";
@@ -386,7 +387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Booking Staff Assignments
-  app.get("/api/bookings/:id/staff", async (req, res) => {
+  app.get("/api/bookings/:id/staff", authMiddleware, async (req, res) => {
     try {
       const staff = await storage.getBookingStaff(req.params.id);
       res.json(staff);
@@ -395,7 +396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/bookings/:id/staff", async (req, res) => {
+  app.post("/api/bookings/:id/staff", authMiddleware, async (req, res) => {
     try {
       const data = insertBookingStaffSchema.parse({ ...req.body, bookingId: req.params.id });
       const assignment = await storage.assignStaffToBooking(data);
@@ -408,8 +409,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/bookings/:bookingId/staff/:staffId", authMiddleware, async (req, res) => {
+    try {
+      // Find the assignment ID for this booking + staff combination
+      const assignments = await storage.getBookingStaff(req.params.bookingId);
+      const assignment = assignments.find(a => a.staffId === req.params.staffId);
+      
+      if (!assignment) {
+        return res.status(404).json({ error: "Staff assignment not found" });
+      }
+      
+      const success = await storage.removeStaffFromBooking(assignment.id);
+      if (!success) {
+        return res.status(404).json({ error: "Failed to remove assignment" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to remove staff assignment" });
+    }
+  });
+
   // Invoices
-  app.get("/api/invoices", async (req, res) => {
+  app.get("/api/invoices", authMiddleware, async (req, res) => {
     try {
       const invoices = await storage.getAllInvoices();
       res.json(invoices);
@@ -418,7 +439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices/:id", async (req, res) => {
+  app.get("/api/invoices/:id", authMiddleware, async (req, res) => {
     try {
       const invoice = await storage.getInvoice(req.params.id);
       if (!invoice) {
@@ -430,7 +451,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices/booking/:bookingId", async (req, res) => {
+  app.get("/api/invoices/booking/:bookingId", authMiddleware, async (req, res) => {
     try {
       const invoice = await storage.getInvoiceByBooking(req.params.bookingId);
       res.json(invoice);
@@ -439,7 +460,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/invoices", async (req, res) => {
+  app.post("/api/invoices", authMiddleware, async (req, res) => {
     try {
       const data = insertInvoiceSchema.parse(req.body);
       const invoice = await storage.createInvoice(data);
@@ -452,7 +473,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/invoices/:id", async (req, res) => {
+  // Generate invoice from booking
+  app.post("/api/bookings/:id/generate-invoice", authMiddleware, async (req, res) => {
+    try {
+      // Check if invoice already exists for this booking
+      const existing = await storage.getInvoiceByBooking(req.params.id);
+      if (existing) {
+        return res.status(400).json({ error: "Invoice already exists for this booking" });
+      }
+
+      // Get booking details
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) {
+        return res.status(404).json({ error: "Booking not found" });
+      }
+
+      // Generate invoice number (simple timestamp-based)
+      const invoiceNumber = `INV-${Date.now()}`;
+      
+      // Create invoice with booking data
+      const invoice = await storage.createInvoice({
+        bookingId: booking.id,
+        clientId: booking.clientId,
+        invoiceNumber,
+        status: "draft",
+        subtotal: "0",
+        tax: "0",
+        total: "0",
+        amountPaid: "0",
+        balance: "0",
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+      });
+      
+      res.json(invoice);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to generate invoice" });
+    }
+  });
+
+  app.patch("/api/invoices/:id", authMiddleware, async (req, res) => {
     try {
       const data = insertInvoiceSchema.partial().parse(req.body);
       const invoice = await storage.updateInvoice(req.params.id, data);
@@ -788,6 +847,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(message);
     } catch (error) {
       res.status(500).json({ error: "Failed to mark message as read" });
+    }
+  });
+
+  // Deliverables
+  app.get("/api/bookings/:id/deliverables", authMiddleware, async (req, res) => {
+    try {
+      const deliverables = await storage.getDeliverablesByBooking(req.params.id);
+      res.json(deliverables);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch deliverables" });
+    }
+  });
+
+  app.post("/api/bookings/:id/deliverables", authMiddleware, async (req, res) => {
+    try {
+      const data = insertDeliverableSchema.parse({
+        ...req.body,
+        bookingId: req.params.id,
+      });
+      const deliverable = await storage.createDeliverable(data);
+      res.json(deliverable);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create deliverable" });
+    }
+  });
+
+  app.delete("/api/deliverables/:id", authMiddleware, async (req, res) => {
+    try {
+      const success = await storage.deleteDeliverable(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Deliverable not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete deliverable" });
     }
   });
 

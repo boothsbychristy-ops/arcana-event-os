@@ -246,6 +246,16 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Deliverables (final files, photos, videos, links)
+export const deliverables = pgTable("deliverables", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  bookingId: varchar("booking_id").references(() => bookings.id).notNull(),
+  kind: text("kind").notNull().default("link"), // link, photo, video, file
+  title: text("title").notNull(),
+  url: text("url").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
@@ -266,6 +276,7 @@ export const insertUnavailableNoticeSchema = createInsertSchema(unavailableNotic
 export const insertPrivacySettingsSchema = createInsertSchema(privacySettings).omit({ id: true, updatedAt: true });
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, completedAt: true });
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
+export const insertDeliverableSchema = createInsertSchema(deliverables).omit({ id: true, createdAt: true });
 
 // TypeScript types
 export type User = typeof users.$inferSelect;
@@ -324,6 +335,9 @@ export type InsertTask = z.infer<typeof insertTaskSchema>;
 
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
+export type Deliverable = typeof deliverables.$inferSelect;
+export type InsertDeliverable = z.infer<typeof insertDeliverableSchema>;
 
 // Auth schemas
 export const loginSchema = z.object({
