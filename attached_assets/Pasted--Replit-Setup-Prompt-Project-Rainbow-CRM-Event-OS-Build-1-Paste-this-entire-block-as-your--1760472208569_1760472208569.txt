@@ -1,0 +1,150 @@
+🚀 Replit Setup Prompt — “Project Rainbow CRM” / Event OS Build #1
+
+Paste this entire block as your first message to Replit’s AI Agent or into the prompt.txt / setup pane.
+
+🪞 Objective
+
+Create the first build of Event OS (codename Project Rainbow CRM) — a modern, Empress-themed SaaS CRM + Booking + Project Management platform for event professionals (photo-booth owners, DJs, mobile bartenders).
+The design language, folder structure, and ethics logic must match Empress AI Studio’s V7 aesthetic and include Mirror Protocol tags for licensing & data safety.
+
+🧩 System Overview
+
+Stack:
+
+Frontend → React + Vite + TailwindCSS (use Empress gradient: from-fuchsia-500 via-rose-400 to-amber-300)
+
+Backend → Node.js + Express + Supabase (Postgres adapter for auth & storage)
+
+Auth → Supabase Auth (Role flags: admin, staff, client)
+
+Payments → Stripe (test mode)
+
+Email/SMS → Mailgun + Twilio
+
+Calendar → Google Calendar OAuth read/write
+
+API layer → REST + WebSocket for real-time updates
+
+Deployment → Replit Node container → Vercel ready
+
+📁 Target File Structure
+event-os/
+├── client/                     # React frontend
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── BookingForm.jsx
+│   │   │   ├── ContractViewer.jsx
+│   │   │   ├── InvoiceCard.jsx
+│   │   │   ├── KanbanBoard.jsx
+│   │   │   ├── StaffChecklist.jsx
+│   │   │   └── MirrorTagBanner.jsx
+│   │   ├── pages/
+│   │   │   ├── Home.jsx
+│   │   │   ├── Clients.jsx
+│   │   │   ├── Bookings.jsx
+│   │   │   ├── Tasks.jsx
+│   │   │   └── Settings.jsx
+│   │   ├── hooks/
+│   │   ├── context/
+│   │   │   ├── AuthContext.js
+│   │   │   └── MirrorContext.js
+│   │   ├── styles/tailwind.css
+│   │   └── main.jsx
+│   ├── public/
+│   └── vite.config.js
+│
+├── server/
+│   ├── index.js                # Express entry
+│   ├── routes/
+│   │   ├── clients.js
+│   │   ├── bookings.js
+│   │   ├── contracts.js
+│   │   ├── invoices.js
+│   │   ├── tasks.js
+│   │   ├── staff.js
+│   │   └── mirror.js           # Mirror Protocol meta API
+│   ├── services/
+│   │   ├── stripeService.js
+│   │   ├── twilioService.js
+│   │   ├── mailgunService.js
+│   │   ├── calendarService.js
+│   │   └── mirrorProtocol.js
+│   ├── db/
+│   │   └── schema.sql
+│   ├── middleware/
+│   │   ├── auth.js
+│   │   ├── errorHandler.js
+│   │   └── mirrorTags.js
+│   └── package.json
+│
+├── supabase/
+│   ├── init.sql
+│   └── policies.sql
+│
+├── .env.example
+└── README.md
+
+⚙️ Core Endpoints (MVP)
+Method	Endpoint	Purpose
+POST	/api/clients	Create client record + MirrorTag meta block
+POST	/api/bookings	New booking → contract & invoice auto-generate
+POST	/api/contracts/sign	Upload client signature (Base64 PNG)
+POST	/api/payments/intent	Create Stripe payment intent
+GET	/api/tasks/:bookingId	Return checklist for event
+PATCH	/api/tasks/:id	Mark task complete
+GET	/api/mirror/tags	Return license + safety metadata for audits
+
+Each record includes:
+
+"mirror_tags": {
+  "license": "PBFX/EmpressOS",
+  "model_training": "disallowed",
+  "sensitivity": "inclusive",
+  "data_visibility": "internal_only"
+}
+
+🪩 Frontend Design Guidelines
+
+Use shadcn/ui + Lucide icons for cards and buttons.
+
+Navigation = left rail with animated gradient line.
+
+Status chips = Monday-style colors (booked=green, pending=amber, paid=blue).
+
+Task board = React-Beautiful-DnD Kanban.
+
+Fonts → Inter + Playfair Display.
+
+All forms validated via React Hook Form + Zod.
+
+🧱 Initial Build Goals (Phase 1 Sprint)
+
+Boot Express + React in Replit template.
+
+Add Supabase connection + .env setup.
+
+Build basic login / register UI.
+
+Implement client CRUD + mirror metadata field.
+
+Render Dashboard.jsx with bookings table + colored status pills.
+
+Stripe test payment flow for deposit.
+
+🧠 Design Continuity with Empress AI Studio
+
+Reuse Mirror Protocol metadata system (mirrorProtocol.js) from Baby Empress OS repo.
+
+Include Inclusive Identity Schema (age groups, gender options) from Global Inclusion Wireframe.
+
+Apply IP Protection tags per document standards.
+
+Keep visual style consistent with Empress V7 Prompt Architecture lux tones.
+
+🧭 Next Commands (after setup)
+# create project
+npx create-vite@latest client --template react
+npm init -y && npm i express cors dotenv stripe supabase twilio mailgun-js
+# connect client and server
+npm run dev

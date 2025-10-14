@@ -1,0 +1,895 @@
+heck yeah — let’s light this up. Below is a **copy-pasteable starter scaffold** for your dual-track sprint: a modern **Event OS** (codename: Project Rainbow CRM) that matches your **Empress AI Studio** aesthetic (rainbow gradient, mirror tags, inclusive schema). It’s organized for Replit: **Node/Express API + React/Vite/Tailwind client** with Stripe/Twilio/Mailgun hooks stubbed and a Postgres-ready schema (works great with Supabase later).
+
+---
+
+# 0) One-time: create folders (in Replit shell)
+
+```bash
+mkdir -p server/{routes,services,db,middleware} client
+```
+
+---
+
+# 1) `/server/package.json`
+
+```json
+{
+  "name": "event-os-server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js",
+    "db:sync": "psql \"$DATABASE_URL\" -f ./db/schema.sql"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "pg": "^8.12.0",
+    "stripe": "^16.10.0",
+    "mailgun-js": "^0.22.0",
+    "twilio": "^5.3.4",
+    "zod": "^3.23.8",
+    "uuid": "^9.0.1"
+  }
+}
+```
+
+---
+
+# 2) `/server/index.js`
+
+```js
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import { Pool } from 'pg';
+
+import auth from './middleware/auth.js';
+import errorHandler from './middleware/errorHandler.js';
+import mirrorTags from './middleware/mirrorTags.js';
+
+import clients from './routes/clients.js';
+import bookings from './routes/bookings.js';
+import contracts from './routes/contracts.js';
+import invoices from './routes/invoices.js';
+import tasks from './routes/tasks.js';
+import staff from './routes/staff.js';
+import mirror from './routes/mirror.js';
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL, // works with Supabase or any Postgres
+  ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false
+});
+
+app.use(cors());
+app.use(helmet());
+app.use(express.json({ limit: '2mb' }));
+app.use(morgan('dev'));
+
+// health
+app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'event-os', ts: Date.now() }));
+
+// Mirror Protocol tagger (adds default IP/safety flags to creates/updates)
+app.use(mirrorTags);
+
+// Auth (stub middleware → swap to Clerk/Auth.js/Supabase later)
+app.use(auth);
+
+// Routes
+app.use('/api/clients', clients);
+app.use('/api/bookings', bookings);
+app.use('/api/contracts', contracts);
+app.use('/api/invoices', invoices);
+app.use('/api/tasks', tasks);
+app.use('/api/staff', staff);
+app.use('/api/mirror', mirror);
+
+// Errors
+app.use(errorHandler);
+
+app.listen(PORT, () => {
+  console.log(`Event OS API running on :${PORT}`);
+});
+```
+
+---
+
+# 3) `/server/middleware/auth.js` (stub)
+
+```js
+export default function auth(req, _res, next) {
+  // TODO: replace with real auth (Supabase/Clerk). For now, infer role from header.
+  req.user = {
+    id: req.headers['x-user-id'] || 'demo-admin',
+    role: req.headers['x-user-role'] || 'admin'
+  };
+  next();
+}
+```
+
+---
+
+# 4) `/server/middleware/errorHandler.js`
+
+```js
+export default function errorHandler(err, _req, res, _next) {
+  console.error('API Error:', err);
+  res.status(err.status || 500).json({ error: err.message || 'Internal Server Error' });
+}
+```
+
+---
+
+# 5) `/server/middleware/mirrorTags.js`
+
+```js
+export default function mirrorTags(req, _res, next) {
+  // inject default mirror metadata if the body is a known creatable/update object
+  if (req.body && typeof req.body === 'object') {
+    req.body.mirror_tags = {
+      license: 'PBFX/EmpressOS',
+      model_training: 'disallowed',
+      sensitivity: 'inclusive',
+      data_visibility: 'internal_only',
+      ...(req.body.mirror_tags || {})
+    };
+  }
+  next();
+}
+```
+
+---
+
+# 6) Services: Stripe / Twilio / Mailgun stubs
+
+`/server/services/stripeService.js`
+
+```js
+import Stripe from 'stripe';
+const stripe = new Stripe(process.env.STRIPE_SECRET || '', { apiVersion: '2024-06-20' });
+
+export async function createPaymentIntent({ amount_cents, currency = 'usd', metadata = {} }) {
+  return stripe.paymentIntents.create({
+    amount: amount_cents,
+    currency,
+    automatic_payment_methods: { enabled: true },
+    metadata
+  });
+}
+```
+
+`/server/services/twilioService.js`
+
+```js
+import twilio from 'twilio';
+const client = process.env.TWILIO_SID && process.env.TWILIO_TOKEN
+  ? twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN)
+  : null;
+
+export async function sendSMS(to, body) {
+  if (!client) return { skipped: true };
+  return client.messages.create({ to, from: process.env.TWILIO_FROM, body });
+}
+```
+
+`/server/services/mailgunService.js`
+
+```js
+import mailgun from 'mailgun-js';
+const mg = process.env.MAILGUN_KEY ? mailgun({ apiKey: process.env.MAILGUN_KEY, domain: process.env.MAILGUN_DOMAIN }) : null;
+
+export async function sendEmail({ to, subject, html }) {
+  if (!mg) return { skipped: true };
+  return mg.messages().send({ from: process.env.MAILGUN_FROM || 'noreply@eventos.app', to, subject, html });
+}
+```
+
+---
+
+# 7) Routes (minimal, working CRUD + MVP flows)
+
+`/server/routes/clients.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+import { z } from 'zod';
+
+const r = Router();
+const clientSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  mirror_tags: z.any().optional()
+});
+
+r.get('/', async (_req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM clients ORDER BY created_at DESC LIMIT 200');
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+r.post('/', async (req, res, next) => {
+  try {
+    const payload = clientSchema.parse(req.body);
+    const { rows } = await pool.query(
+      `INSERT INTO clients (name,email,phone,company,tags,mirror_tags)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [payload.name, payload.email || null, payload.phone || null, payload.company || null, payload.tags || [], payload.mirror_tags || {}]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) { next(e); }
+});
+
+export default r;
+```
+
+`/server/routes/bookings.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+import { z } from 'zod';
+import { createPaymentIntent } from '../services/stripeService.js';
+
+const r = Router();
+const bookingSchema = z.object({
+  client_id: z.string(),
+  package_id: z.string(),
+  starts_at: z.string(), // ISO
+  ends_at: z.string(),   // ISO
+  price_cents: z.number().int().nonnegative(),
+  deposit_cents: z.number().int().nonnegative().default(0),
+  location: z.string().optional(),
+  notes: z.string().optional(),
+  mirror_tags: z.any().optional()
+});
+
+r.get('/', async (_req, res, next) => {
+  try {
+    const { rows } = await pool.query(`SELECT b.*, c.name as client_name
+      FROM bookings b LEFT JOIN clients c ON c.id=b.client_id ORDER BY b.starts_at DESC LIMIT 200`);
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+r.post('/', async (req, res, next) => {
+  try {
+    const payload = bookingSchema.parse(req.body);
+    const { rows } = await pool.query(
+      `INSERT INTO bookings (client_id,package_id,starts_at,ends_at,price_cents,deposit_cents,location,notes,status,mirror_tags)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9) RETURNING *`,
+      [payload.client_id, payload.package_id, payload.starts_at, payload.ends_at, payload.price_cents, payload.deposit_cents, payload.location || null, payload.notes || null, payload.mirror_tags || {}]
+    );
+
+    // OPTIONAL: auto-create invoice + contract stub
+    const booking = rows[0];
+
+    res.status(201).json(booking);
+  } catch (e) { next(e); }
+});
+
+r.post('/:id/deposit-intent', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM bookings WHERE id=$1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    const b = rows[0];
+    const amount = b.deposit_cents || Math.round(b.price_cents * 0.3); // 30% default
+    const intent = await createPaymentIntent({ amount_cents: amount, metadata: { booking_id: b.id } });
+    res.json({ client_secret: intent.client_secret });
+  } catch (e) { next(e); }
+});
+
+export default r;
+```
+
+`/server/routes/contracts.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+
+const r = Router();
+
+r.get('/:bookingId', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM contracts WHERE booking_id=$1', [req.params.bookingId]);
+    res.json(rows[0] || null);
+  } catch (e) { next(e); }
+});
+
+r.post('/sign', async (req, res, next) => {
+  try {
+    const { booking_id, signature_png_b64 } = req.body;
+    const { rows } = await pool.query(
+      `INSERT INTO contracts (booking_id, status, signature_png_b64)
+       VALUES ($1,'signed',$2) ON CONFLICT (booking_id)
+       DO UPDATE SET status='signed', signature_png_b64=$2
+       RETURNING *`,
+      [booking_id, signature_png_b64]
+    );
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+
+export default r;
+```
+
+`/server/routes/invoices.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+
+const r = Router();
+
+r.get('/:bookingId', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM invoices WHERE booking_id=$1', [req.params.bookingId]);
+    res.json(rows[0] || null);
+  } catch (e) { next(e); }
+});
+
+export default r;
+```
+
+`/server/routes/tasks.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+
+const r = Router();
+
+r.get('/:bookingId', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks WHERE booking_id=$1 ORDER BY sort_order ASC', [req.params.bookingId]);
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+r.patch('/:id', async (req, res, next) => {
+  try {
+    const { done } = req.body;
+    const { rows } = await pool.query('UPDATE tasks SET done=$1 WHERE id=$2 RETURNING *', [!!done, req.params.id]);
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+
+export default r;
+```
+
+`/server/routes/staff.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+const r = Router();
+
+r.get('/', async (_req, res, next) => {
+  try { const { rows } = await pool.query('SELECT * FROM staff ORDER BY name ASC'); res.json(rows); }
+  catch (e) { next(e); }
+});
+
+export default r;
+```
+
+`/server/routes/mirror.js`
+
+```js
+import { Router } from 'express';
+const r = Router();
+
+r.get('/tags', (_req, res) => {
+  res.json({
+    license: 'PBFX/EmpressOS',
+    model_training: 'disallowed',
+    sensitivity: 'inclusive',
+    data_visibility: 'internal_only'
+  });
+});
+
+export default r;
+```
+
+---
+
+# 8) `/server/db/schema.sql` (Postgres/Supabase-ready)
+
+```sql
+create extension if not exists "uuid-ossp";
+
+-- users (for future auth system)
+create table if not exists users (
+  id uuid primary key default uuid_generate_v4(),
+  email text unique,
+  name text,
+  role text default 'admin',
+  created_at timestamptz default now()
+);
+
+create table if not exists clients (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null,
+  email text,
+  phone text,
+  company text,
+  tags text[] default '{}',
+  mirror_tags jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+create table if not exists packages (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null,
+  description text,
+  price_cents int not null default 0,
+  duration_minutes int not null default 180,
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+create table if not exists bookings (
+  id uuid primary key default uuid_generate_v4(),
+  client_id uuid references clients(id) on delete cascade,
+  package_id uuid references packages(id),
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  location text,
+  notes text,
+  price_cents int not null default 0,
+  deposit_cents int not null default 0,
+  status text not null default 'pending', -- pending|confirmed|paid|completed|canceled
+  mirror_tags jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+create table if not exists invoices (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid unique references bookings(id) on delete cascade,
+  total_cents int not null default 0,
+  deposit_cents int not null default 0,
+  paid_cents int not null default 0,
+  currency text not null default 'usd',
+  status text not null default 'unpaid',
+  created_at timestamptz default now()
+);
+
+create table if not exists payments (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid references bookings(id) on delete cascade,
+  amount_cents int not null,
+  provider text,
+  provider_ref text,
+  created_at timestamptz default now()
+);
+
+create table if not exists contracts (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid unique references bookings(id) on delete cascade,
+  status text not null default 'draft',
+  signature_png_b64 text,
+  created_at timestamptz default now()
+);
+
+create table if not exists tasks (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid references bookings(id) on delete cascade,
+  title text not null,
+  done boolean default false,
+  sort_order int default 0,
+  assignee_id uuid references users(id),
+  due_at timestamptz
+);
+
+create table if not exists staff (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null,
+  email text,
+  phone text,
+  role text default 'staff',
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+create table if not exists staff_assignments (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid references bookings(id) on delete cascade,
+  staff_id uuid references staff(id) on delete set null,
+  role text,
+  unique (booking_id, staff_id)
+);
+
+create table if not exists assets (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null,
+  kind text, -- 'booth','printer','camera','dj_kit'...
+  serial text,
+  active boolean default true
+);
+
+create table if not exists asset_assignments (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid references bookings(id) on delete cascade,
+  asset_id uuid references assets(id) on delete set null,
+  unique (booking_id, asset_id)
+);
+```
+
+---
+
+# 9) `/server/.env.example`
+
+```
+PORT=3001
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+PGSSLMODE=require
+
+STRIPE_SECRET=sk_test_xxx
+TWILIO_SID=ACxxxxxxxx
+TWILIO_TOKEN=xxxxxxxx
+TWILIO_FROM=+15555555555
+
+MAILGUN_KEY=key-xxxxxxxx
+MAILGUN_DOMAIN=mg.yourdomain.com
+MAILGUN_FROM=Event OS <noreply@yourdomain.com>
+```
+
+---
+
+# 10) Client (React + Vite + Tailwind)
+
+From shell:
+
+```bash
+cd client
+npm create vite@latest . -- --template react
+npm i react-router-dom axios react-hook-form zod @radix-ui/react-popover
+npm i -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+`/client/tailwind.config.cjs`
+
+```js
+export default {
+  content: ['./index.html','./src/**/*.{js,jsx}'],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter','ui-sans-serif','system-ui'],
+        display: ['Playfair Display','serif']
+      },
+      backgroundImage: {
+        'empress-gradient': 'linear-gradient(90deg, #d946ef, #fb7185, #f59e0b)'
+      }
+    }
+  },
+  plugins: []
+}
+```
+
+`/client/src/styles/tailwind.css`
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --chip-pending: #f59e0b;
+  --chip-confirmed: #22c55e;
+  --chip-paid: #3b82f6;
+  --chip-danger: #ef4444;
+}
+```
+
+`/client/src/main.jsx`
+
+```jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import './styles/tailwind.css'
+import Home from './pages/Home.jsx'
+import Clients from './pages/Clients.jsx'
+import Bookings from './pages/Bookings.jsx'
+import Tasks from './pages/Tasks.jsx'
+import Settings from './pages/Settings.jsx'
+
+function Shell() {
+  return (
+    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+      <div className="fixed inset-y-0 left-0 w-60 border-r bg-white">
+        <div className="h-24 flex items-center justify-center">
+          <div className="w-40 h-10 rounded-xl shadow-inner bg-empress-gradient"></div>
+        </div>
+        <nav className="px-4 space-y-1">
+          {[
+            ['Dashboard','/'],
+            ['Clients','/clients'],
+            ['Bookings','/bookings'],
+            ['Tasks','/tasks'],
+            ['Settings','/settings']
+          ].map(([label, href]) => (
+            <NavLink key={href} to={href}
+              className={({isActive}) =>
+                `block px-3 py-2 rounded-lg ${isActive ? 'bg-neutral-100 font-semibold' : 'hover:bg-neutral-50'}`
+              }>
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+      <main className="ml-60 p-8">
+        <Routes>
+          <Route path="/" element={<Home/>} />
+          <Route path="/clients" element={<Clients/>} />
+          <Route path="/bookings" element={<Bookings/>} />
+          <Route path="/tasks" element={<Tasks/>} />
+          <Route path="/settings" element={<Settings/>} />
+        </Routes>
+      </main>
+    </div>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <BrowserRouter>
+    <Shell/>
+  </BrowserRouter>
+)
+```
+
+`/client/src/pages/Home.jsx`
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+function Chip({status}) {
+  const map = {
+    pending: 'bg-[color:var(--chip-pending)]',
+    confirmed: 'bg-[color:var(--chip-confirmed)]',
+    paid: 'bg-[color:var(--chip-paid)]'
+  }
+  return <span className={`inline-block text-white text-xs px-2 py-1 rounded-full ${map[status] || 'bg-gray-400'}`}>{status}</span>
+}
+
+export default function Home(){
+  const [rows, setRows] = useState([])
+  useEffect(()=>{
+    axios.get('/api/bookings').then(r=>setRows(r.data)).catch(()=>{})
+  },[])
+  return (
+    <div>
+      <header className="mb-6">
+        <h1 className="text-3xl font-display">Dashboard</h1>
+        <p className="text-sm text-neutral-500">Project Rainbow CRM — Empress aesthetic</p>
+      </header>
+
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="p-4 rounded-2xl bg-white shadow-sm border">
+          <div className="text-sm text-neutral-500">Bookings (last 30d)</div>
+          <div className="text-3xl font-semibold">–</div>
+        </div>
+        <div className="p-4 rounded-2xl bg-white shadow-sm border">
+          <div className="text-sm text-neutral-500">Revenue (last 30d)</div>
+          <div className="text-3xl font-semibold">$ –</div>
+        </div>
+        <div className="p-4 rounded-2xl bg-white shadow-sm border">
+          <div className="text-sm text-neutral-500">Open Tasks</div>
+          <div className="text-3xl font-semibold">–</div>
+        </div>
+      </div>
+
+      <section className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b font-semibold">Recent Bookings</div>
+        <table className="w-full text-sm">
+          <thead className="bg-neutral-50">
+            <tr>
+              <th className="text-left p-3">Client</th>
+              <th className="text-left p-3">Starts</th>
+              <th className="text-left p-3">Price</th>
+              <th className="text-left p-3">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(b=>(
+              <tr key={b.id} className="border-t">
+                <td className="p-3">{b.client_name || '—'}</td>
+                <td className="p-3">{new Date(b.starts_at).toLocaleString()}</td>
+                <td className="p-3">${(b.price_cents/100).toFixed(2)}</td>
+                <td className="p-3"><Chip status={b.status}/></td>
+              </tr>
+            ))}
+            {!rows.length && (
+              <tr><td className="p-6 text-neutral-500" colSpan={4}>No data yet — create a booking.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </section>
+    </div>
+  )
+}
+```
+
+`/client/src/pages/Clients.jsx`
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+export default function Clients(){
+  const [rows,setRows]=useState([])
+  const [form,setForm]=useState({name:'',email:'',phone:''})
+
+  useEffect(()=>{ axios.get('/api/clients').then(r=>setRows(r.data)) },[])
+
+  async function create(e){
+    e.preventDefault()
+    const {data} = await axios.post('/api/clients', form, { headers: { 'x-user-role':'admin' } })
+    setRows([data, ...rows]); setForm({name:'',email:'',phone:''})
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Clients</h1>
+      <form onSubmit={create} className="mb-6 bg-white border rounded-2xl p-4 flex gap-3">
+        <input className="border rounded px-3 py-2 flex-1" placeholder="Name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+        <input className="border rounded px-3 py-2" placeholder="Email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>
+        <input className="border rounded px-3 py-2" placeholder="Phone" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/>
+        <button className="px-4 py-2 rounded-lg text-white" style={{background:'linear-gradient(90deg,#d946ef,#fb7185,#f59e0b)'}}>Add</button>
+      </form>
+      <div className="bg-white border rounded-2xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-neutral-50">
+            <tr><th className="text-left p-3">Name</th><th className="text-left p-3">Email</th><th className="text-left p-3">Phone</th></tr>
+          </thead>
+          <tbody>
+            {rows.map(c=>(
+              <tr key={c.id} className="border-t">
+                <td className="p-3">{c.name}</td>
+                <td className="p-3">{c.email || '—'}</td>
+                <td className="p-3">{c.phone || '—'}</td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td className="p-6 text-neutral-500" colSpan="3">No clients yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+```
+
+`/client/src/pages/Bookings.jsx` (placeholder list)
+
+```jsx
+export default function Bookings(){
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Bookings</h1>
+      <p className="text-neutral-500">MVP: Use Dashboard for list; this page will host calendar & booking form.</p>
+    </div>
+  )
+}
+```
+
+`/client/src/pages/Tasks.jsx`
+
+```jsx
+export default function Tasks(){
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Tasks</h1>
+      <p className="text-neutral-500">Kanban board coming next (react-beautiful-dnd). Checklists per booking.</p>
+    </div>
+  )
+}
+```
+
+`/client/src/pages/Settings.jsx`
+
+```jsx
+export default function Settings(){
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Settings</h1>
+      <ul className="list-disc pl-6 text-neutral-600">
+        <li>Branding (logo, colors)</li>
+        <li>Payments (Stripe keys)</li>
+        <li>Messaging (Mailgun/Twilio)</li>
+        <li>Calendar sync</li>
+      </ul>
+    </div>
+  )
+}
+```
+
+---
+
+# 11) Root `README.md` (quickstart)
+
+```md
+# Event OS (Project Rainbow CRM)
+
+## Dev
+1) Server
+```
+
+cd server
+cp .env.example .env   # fill DATABASE_URL, Stripe test key
+npm i
+npm run dev
+
+```
+
+2) DB (Postgres)
+```
+
+npm run db:sync
+
+```
+
+3) Client
+```
+
+cd ../client
+npm i
+npm run dev
+
+```
+
+Open client dev server, ensure proxy to /api (add Vite proxy if needed).
+```
+
+(Optional Vite proxy: add to `/client/vite.config.js`)
+
+```js
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: { '/api': 'http://localhost:3001' }
+  }
+})
+```
+
+---
+
+## What you can do **right now**
+
+* Start server (`server/npm run dev`) and client (`client/npm run dev`).
+* Visit **Dashboard** → it will call `/api/bookings` and render rows (empty until you insert).
+* Go to **Clients** → add a client (persists to Postgres).
+* Use `POST /api/bookings` in Thunder Client or frontend next to create a booking, then test `/deposit-intent`.
+
+---
+
+## Next quick wins (I can draft these when you’re ready)
+
+* Booking form UI (date/time pickers + package dropdown).
+* Signature pad in Contract viewer (react-signature-canvas) + PDF export.
+* Task templates auto-generated by package type.
+* Simple iCal feed endpoint for bookings.
+* Stripe Elements on client portal for deposit pay-now.
+
+---
+
+If you want, send me **screenshots of Check Cherry flows** you love (lead form, proposal, contract, invoice views). I’ll map them 1:1 into components and add the fields/automations so your version feels familiar but cleaner (and rainbow-sexy).

@@ -1,0 +1,698 @@
+yesss. this batch fills in: **profile editing (bio/avatar/devices), embed widgets library, website integration links, terms editor with tokens/optional sections, branding/colors/logo, and “tips” settings.** Below is everything you need to wire these into your Replit scaffold: schema, API routes, and React pages/snippets. Drop-in ready.
+
+---
+
+# 0) Schema adds (append to `/server/db/schema.sql`)
+
+```sql
+-- USER PROFILE (expanded)
+alter table users add column if not exists first_name text;
+alter table users add column if not exists last_name text;
+alter table users add column if not exists business_name text;
+alter table users add column if not exists phone text;
+alter table users add column if not exists address1 text;
+alter table users add column if not exists city text;
+alter table users add column if not exists state text;
+alter table users add column if not exists zip text;
+alter table users add column if not exists bio text;
+alter table users add column if not exists avatar_url text;
+alter table users add column if not exists daily_digests boolean default true;
+
+-- PUSH DEVICES (for future push; MVP shows list)
+create table if not exists push_devices (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references users(id) on delete cascade,
+  platform text,                 -- 'ios'|'android'|'web'
+  label text,                    -- "Apple iOS 18.6.2", etc
+  token text unique,
+  created_at timestamptz default now()
+);
+
+-- WIDGETS (embed tokens + config)
+create table if not exists widgets (
+  id uuid primary key default uuid_generate_v4(),
+  owner_id uuid references users(id) on delete cascade,    -- account owner
+  kind text not null,                                      -- lead_form|add_on_gallery|backdrop_gallery|template_gallery|staff_profiles|availability_calendar|appointment_scheduler|mini_sessions|package_link|signin
+  name text not null,
+  config jsonb not null default '{}'::jsonb,               -- per-widget settings
+  token text unique not null,                              -- public embed token
+  created_at timestamptz default now()
+);
+
+-- TERMS / AGREEMENT TEMPLATE + OPTIONAL SECTIONS
+create table if not exists terms_templates (
+  id uuid primary key default uuid_generate_v4(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null default 'Service Agreement',
+  body text not null,                         -- supports {{tokens}}
+  optional_sections jsonb default '[]'::jsonb,-- [{key:'balloon_decor_section',label:'Balloon Decor',body:'...'}]
+  created_at timestamptz default now()
+);
+
+-- BRANDING (multi-brand support)
+create table if not exists brands (
+  id uuid primary key default uuid_generate_v4(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  email text, phone text, website text,
+  address text,
+  logo_url text,
+  primary_color text default '#7c3aed',
+  nav_bg_color text default '#3c0b43',
+  nav_text_color text default '#ffffff',
+  cta_bg_color text default '#7c3aed',
+  cta_text_color text default '#ffffff',
+  favicon_url text,
+  is_primary boolean default false,
+  created_at timestamptz default now()
+);
+
+-- ORG SETTINGS (tips, timezone, week start, crawl, footer, etc.)
+create table if not exists org_settings (
+  owner_id uuid primary key references users(id) on delete cascade,
+  timezone text default 'America/Los_Angeles',
+  week_start text default 'sunday',
+  footer_email boolean default true,
+  footer_address boolean default false,
+  crawl_allowed boolean default true,
+  tips_enabled boolean default true
+);
+```
+
+---
+
+# 1) Uploads (avatar/logo) — super simple local storage
+
+## a) tiny upload middleware `/server/services/upload.js`
+
+```js
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
+const dir = './uploads';
+if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, dir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '');
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  }
+});
+export const upload = multer({ storage });
+```
+
+Mount static in `server/index.js`:
+
+```js
+app.use('/uploads', express.static('uploads'));
+```
+
+---
+
+# 2) Routes
+
+## a) Profile (edit, devices, avatar) — `/server/routes/profile.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+import { upload } from '../services/upload.js';
+const r = Router();
+
+// GET my profile
+r.get('/me', async (req,res,next)=>{
+  try{
+    // replace req.user.id with your auth; for now assume owner id = 1 or env
+    const id = req.user?.id || process.env.DEMO_OWNER_ID;
+    const [{rows:[u]}, {rows:devices}] = await Promise.all([
+      pool.query('select * from users where id=$1',[id]),
+      pool.query('select * from push_devices where user_id=$1 order by created_at desc',[id])
+    ]);
+    res.json({ user:u, devices });
+  }catch(e){ next(e); }
+});
+
+// UPDATE profile
+r.post('/me', async (req,res,next)=>{
+  try{
+    const id = req.user?.id || process.env.DEMO_OWNER_ID;
+    const fields = ['first_name','last_name','business_name','email','phone','address1','city','state','zip','bio','daily_digests'];
+    const sets=[], vals=[];
+    fields.forEach((k,i)=>{ if (k in req.body){ sets.push(`${k}=$${i+1}`); vals.push(req.body[k]); } });
+    vals.push(id);
+    if(sets.length) await pool.query(`update users set ${sets.join(',')} where id=$${vals.length}`, vals);
+    res.json({ ok:true });
+  }catch(e){ next(e); }
+});
+
+// Upload avatar
+r.post('/me/avatar', upload.single('file'), async (req,res,next)=>{
+  try{
+    const id = req.user?.id || process.env.DEMO_OWNER_ID;
+    const url = `/uploads/${req.file.filename}`;
+    await pool.query('update users set avatar_url=$1 where id=$2',[url,id]);
+    res.json({ url });
+  }catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import profile from './routes/profile.js';
+app.use('/api/profile', profile);
+```
+
+---
+
+## b) Widgets + Embed codes — `/server/routes/widgets.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+import crypto from 'crypto';
+const r = Router();
+
+const ownerId = process.env.DEMO_OWNER_ID;
+
+// list
+r.get('/', async (_req,res,next)=>{
+  try{ const {rows}=await pool.query('select * from widgets where owner_id=$1 order by created_at desc',[ownerId]); res.json(rows); }
+  catch(e){ next(e); }
+});
+
+// create
+r.post('/', async (req,res,next)=>{
+  try{
+    const { kind, name, config={} } = req.body;
+    const token = crypto.randomBytes(12).toString('hex');
+    const { rows:[w] } = await pool.query(
+      'insert into widgets (owner_id,kind,name,config,token) values ($1,$2,$3,$4,$5) returning *',
+      [ownerId, kind, name, config, token]
+    );
+    res.status(201).json(w);
+  }catch(e){ next(e); }
+});
+
+// public embed renderer (iframe-friendly HTML)
+// /w/:token -> returns minimal HTML per widget
+r.get('/public/:token', async (req,res,next)=>{
+  try{
+    const { rows:[w] } = await pool.query('select * from widgets where token=$1',[req.params.token]);
+    if(!w) return res.status(404).send('Not found');
+
+    // very simple placeholder HTML for each widget type
+    const css = `<style>body{margin:0;font:14px system-ui} .hdr{padding:10px;background:#3c0b43;color:#fff} .wrap{padding:12px}</style>`;
+    const body = {
+      lead_form: `<div class="wrap"><h3>Lead Form</h3><form><input placeholder="Name"/><input placeholder="Email"/><button>Submit</button></form></div>`,
+      add_on_gallery: `<div class="wrap"><h3>Add-ons</h3><ul><li>Backdrop</li><li>Extra Hour</li></ul></div>`,
+      backdrop_gallery: `<div class="wrap"><h3>Backdrops</h3><div id="grid"></div></div>`,
+      template_gallery: `<div class="wrap"><h3>Design Templates</h3></div>`,
+      staff_profiles: `<div class="wrap"><h3>Staff Profiles</h3></div>`,
+      availability_calendar: `<div class="wrap"><h3>Availability</h3></div>`,
+      appointment_scheduler: `<div class="wrap"><h3>Schedule an Appointment</h3></div>`,
+      mini_sessions: `<div class="wrap"><h3>Mini Sessions</h3></div>`,
+      package_link: `<div class="wrap"><h3>Choose Package</h3></div>`,
+      signin: `<div class="wrap"><h3>Sign In</h3><form><input placeholder="Email"/><input placeholder="Password" type="password"/><button>Sign In</button></form></div>`
+    }[w.kind] || `<div class="wrap"><em>Unknown widget</em></div>`;
+
+    res.set('Content-Type','text/html').send(`${css}<div class="hdr">${w.name}</div>${body}`);
+  }catch(e){ next(e); }
+});
+
+// helper to generate copy-paste embed <script> snippet
+r.get('/:id/embed', async (req,res,next)=>{
+  try{
+    const { rows:[w] } = await pool.query('select * from widgets where id=$1 and owner_id=$2',[req.params.id, ownerId]);
+    if(!w) return res.status(404).json({error:'Not found'});
+    const base = process.env.PUBLIC_URL || '';
+    const snippet = `
+<!-- ${w.kind}: ${w.name} -->
+<div id="empress-widget-${w.token}"></div>
+<script>(function(){var d=document,s=d.createElement('iframe');s.src='${base}/api/widgets/public/${w.token}';s.width='100%';s.height='600';s.style.border='0';d.getElementById('empress-widget-${w.token}').appendChild(s);}())</script>
+`;
+    res.json({ snippet });
+  }catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import widgets from './routes/widgets.js';
+app.use('/api/widgets', widgets);
+```
+
+---
+
+## c) Terms editor — `/server/routes/terms.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+const r = Router();
+const ownerId = process.env.DEMO_OWNER_ID;
+
+r.get('/', async (_req,res,next)=>{
+  try{ const {rows}=await pool.query('select * from terms_templates where owner_id=$1 order by created_at desc',[ownerId]); res.json(rows); }
+  catch(e){ next(e); }
+});
+
+r.post('/', async (req,res,next)=>{
+  try{
+    const { name='Service Agreement', body, optional_sections=[] } = req.body;
+    const { rows:[t] } = await pool.query(
+      'insert into terms_templates (owner_id,name,body,optional_sections) values ($1,$2,$3,$4) returning *',
+      [ownerId, name, body, optional_sections]);
+    res.status(201).json(t);
+  }catch(e){ next(e); }
+});
+
+// render with tokens for a booking (MVP)
+r.get('/render/:bookingId', async (req,res,next)=>{
+  try{
+    const [{rows:[t]} , {rows:[b]}] = await Promise.all([
+      pool.query('select * from terms_templates where owner_id=$1 order by created_at desc limit 1',[ownerId]),
+      pool.query(`select b.*, c.name as venue_name, b.location as venue_address
+                  from bookings b left join venues v on v.id=b.venue_id left join clients c2 on c2.id=b.client_id
+                  where b.id=$1`, [req.params.bookingId])
+    ]);
+    if(!t) return res.status(404).send('No template');
+    const tokens = {
+      '{{booked_date}}': new Date(b.created_at||Date.now()).toLocaleDateString(),
+      '{{brand_name}}': 'Your Brand',
+      '{{event_date}}': new Date(b.starts_at).toLocaleDateString(),
+      '{{event_time}}': new Date(b.starts_at).toLocaleTimeString(),
+      '{{event_deposit_due_date}}': '', '{{event_final_due_date}}':'',
+      '{{venue_address}}': b.venue_address || '', '{{venue_name}}': b.venue_name || ''
+    };
+    let out = t.body;
+    Object.entries(tokens).forEach(([k,v])=> out = out.replaceAll(k, v));
+    res.type('text/plain').send(out);
+  }catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import terms from './routes/terms.js';
+app.use('/api/terms', terms);
+```
+
+---
+
+## d) Branding + Org Settings — `/server/routes/settings.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+import { upload } from '../services/upload.js';
+const r = Router();
+const ownerId = process.env.DEMO_OWNER_ID;
+
+r.get('/branding', async (_req,res,next)=>{
+  try{
+    const [{rows:brands},{rows:[org]}] = await Promise.all([
+      pool.query('select * from brands where owner_id=$1 order by is_primary desc, created_at asc',[ownerId]),
+      pool.query('select * from org_settings where owner_id=$1',[ownerId])
+    ]);
+    res.json({ brands, org });
+  }catch(e){ next(e); }
+});
+
+r.post('/branding', async (req,res,next)=>{
+  try{
+    const { name, email, phone, website, address, primary_color, nav_bg_color, nav_text_color, cta_bg_color, cta_text_color, is_primary=false } = req.body;
+    const { rows:[b] } = await pool.query(
+      `insert into brands (owner_id,name,email,phone,website,address,primary_color,nav_bg_color,nav_text_color,cta_bg_color,cta_text_color,is_primary)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+      [ownerId,name,email,phone,website,address,primary_color,nav_bg_color,nav_text_color,cta_bg_color,cta_text_color,!!is_primary]
+    );
+    res.status(201).json(b);
+  }catch(e){ next(e); }
+});
+
+r.post('/branding/:id/logo', upload.single('file'), async (req,res,next)=>{
+  try{
+    const url = `/uploads/${req.file.filename}`;
+    await pool.query('update brands set logo_url=$1 where id=$2 and owner_id=$3',[url, req.params.id, ownerId]);
+    res.json({ url });
+  }catch(e){ next(e); }
+});
+
+r.post('/org', async (req,res,next)=>{
+  try{
+    const fields = ['timezone','week_start','footer_email','footer_address','crawl_allowed','tips_enabled'];
+    const set = [], vals=[];
+    fields.forEach((k,i)=>{ if(k in req.body){ set.push(`${k}=$${i+1}`); vals.push(req.body[k]); }});
+    vals.push(ownerId);
+    await pool.query(
+      `insert into org_settings (owner_id) values ($${vals.length})
+       on conflict (owner_id) do update set ${set.length?set.join(','): 'owner_id=excluded.owner_id'}`,
+      vals
+    );
+    res.json({ ok:true });
+  }catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import settings from './routes/settings.js';
+app.use('/api/settings', settings);
+```
+
+---
+
+# 3) Client UI
+
+## a) “My Profile” (edit + avatar + devices)
+
+`/client/src/pages/Profile.jsx`
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+export default function Profile(){
+  const [data,setData]=useState(null)
+  const [form,setForm]=useState({})
+  const [avatar,setAvatar]=useState(null)
+
+  useEffect(()=>{ axios.get('/api/profile/me').then(r=>{ setData(r.data); setForm(r.data.user || {}) }) },[])
+
+  async function save(){ await axios.post('/api/profile/me', form); alert('Profile updated') }
+  async function uploadAvatar(e){
+    const fd = new FormData(); fd.append('file', e.target.files[0])
+    const { data } = await axios.post('/api/profile/me/avatar', fd)
+    setForm(f=>({...f, avatar_url:data.url}))
+  }
+
+  if(!data) return <div>Loading…</div>
+  const u = form
+
+  return (
+    <div className="grid grid-cols-3 gap-6">
+      <section className="col-span-2 bg-white border rounded-2xl p-4 space-y-3">
+        <h1 className="text-2xl font-display">My Profile</h1>
+        <div className="grid grid-cols-2 gap-3">
+          <input className="input" placeholder="First name" value={u.first_name||''} onChange={e=>setForm({...form,first_name:e.target.value})}/>
+          <input className="input" placeholder="Last name" value={u.last_name||''} onChange={e=>setForm({...form,last_name:e.target.value})}/>
+          <input className="input col-span-2" placeholder="Business name" value={u.business_name||''} onChange={e=>setForm({...form,business_name:e.target.value})}/>
+          <input className="input" placeholder="Email" value={u.email||''} onChange={e=>setForm({...form,email:e.target.value})}/>
+          <input className="input" placeholder="Phone" value={u.phone||''} onChange={e=>setForm({...form,phone:e.target.value})}/>
+          <input className="input col-span-2" placeholder="Address" value={u.address1||''} onChange={e=>setForm({...form,address1:e.target.value})}/>
+          <input className="input" placeholder="City" value={u.city||''} onChange={e=>setForm({...form,city:e.target.value})}/>
+          <input className="input" placeholder="State" value={u.state||''} onChange={e=>setForm({...form,state:e.target.value})}/>
+          <input className="input" placeholder="Zip" value={u.zip||''} onChange={e=>setForm({...form,zip:e.target.value})}/>
+        </div>
+        <div>
+          <label className="block text-sm mb-1">Bio</label>
+          <textarea className="w-full border rounded-xl p-3" rows="6" value={u.bio||''} onChange={e=>setForm({...form,bio:e.target.value})}/>
+        </div>
+        <label className="inline-flex items-center gap-2">
+          <input type="checkbox" checked={!!u.daily_digests} onChange={e=>setForm({...form,daily_digests:e.target.checked})}/>
+          <span className="text-sm">Yes, send daily digests</span>
+        </label>
+        <button onClick={save} className="px-4 py-2 rounded-xl text-white" style={{background:'linear-gradient(90deg,#d946ef,#fb7185,#f59e0b)'}}>Update Profile</button>
+      </section>
+
+      <aside className="col-span-1 space-y-4">
+        <div className="bg-white border rounded-2xl p-4">
+          <div className="font-medium mb-2">Bio Image</div>
+          {u.avatar_url && <img alt="" src={u.avatar_url} className="rounded-xl mb-2"/>}
+          <input type="file" onChange={uploadAvatar}/>
+        </div>
+        <div className="bg-white border rounded-2xl p-4">
+          <div className="font-medium mb-2">Push Notifications</div>
+          <ul className="text-sm space-y-1">
+            {data.devices.map(d=><li key={d.id}>• {d.label}</li>)}
+            {!data.devices.length && <div className="text-neutral-500">No devices registered yet.</div>}
+          </ul>
+        </div>
+      </aside>
+    </div>
+  )
+}
+```
+
+> Add route: `<Route path="/profile" element={<Profile/>} />`
+
+---
+
+## b) Integrations → Widget Library + Embed button
+
+`/client/src/pages/Integrations.jsx`
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+const KINDS = [
+  ['lead_form','Lead Forms'], ['add_on_gallery','Add On Gallery'], ['backdrop_gallery','Backdrop Gallery'],
+  ['template_gallery','Design Template Gallery'], ['staff_profiles','Staff Profiles'],
+  ['availability_calendar','Booking Availability Calendar'], ['appointment_scheduler','Appointment Scheduler'],
+  ['mini_sessions','Mini Sessions'], ['package_link','Link to package'], ['signin','Sign In']
+]
+
+export default function Integrations(){
+  const [rows,setRows]=useState([])
+  useEffect(()=>{ axios.get('/api/widgets').then(r=>setRows(r.data)) },[])
+
+  async function create(kind){
+    const { data } = await axios.post('/api/widgets',{ kind, name: KINDS.find(k=>k[0]===kind)[1] })
+    setRows([data, ...rows])
+  }
+  async function copyEmbed(id){
+    const { data } = await axios.get(`/api/widgets/${id}/embed`)
+    await navigator.clipboard.writeText(data.snippet)
+    alert('Embed code copied!')
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Website Widget Library</h1>
+      <div className="grid grid-cols-3 gap-4">
+        {KINDS.map(([k,label])=>(
+          <div key={k} className="bg-white border rounded-2xl p-4">
+            <div className="font-semibold">{label}</div>
+            <p className="text-sm text-neutral-500">Embed a {label.toLowerCase()} on your website.</p>
+            <button onClick={()=>create(k)} className="mt-3 px-3 py-2 rounded-lg text-white" style={{background:'#3c0b43'}}>+ Get Embed Code</button>
+          </div>
+        ))}
+      </div>
+
+      <h2 className="text-xl font-display mt-8 mb-2">My Widgets</h2>
+      <div className="bg-white border rounded-2xl p-4">
+        {rows.map(w=>(
+          <div key={w.id} className="flex items-center justify-between border rounded-xl p-3 mb-2">
+            <div><b>{w.name}</b> <span className="text-xs text-neutral-500">({w.kind})</span></div>
+            <button onClick={()=>copyEmbed(w.id)} className="px-3 py-2 rounded-lg text-white" style={{background:'#3c0b43'}}>Copy Embed</button>
+          </div>
+        ))}
+        {!rows.length && <div className="text-neutral-500">No widgets yet.</div>}
+      </div>
+    </div>
+  )
+}
+```
+
+> Route: `<Route path="/integrations" element={<Integrations/>} />`
+
+---
+
+## c) Terms Editor
+
+`/client/src/pages/Terms.jsx`
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+const TOKENS = ['{{booked_date}}','{{brand_name}}','{{event_date}}','{{event_time}}','{{event_deposit_due_date}}','{{event_final_due_date}}','{{venue_address}}','{{venue_name}}']
+
+export default function Terms(){
+  const [rows,setRows]=useState([]); const [body,setBody]=useState(''); const [name,setName]=useState('Service Agreement')
+  const [sections,setSections]=useState([{key:'balloon_decor_section',label:'Balloon Decor',body:'Your optional terms go here.'}])
+
+  useEffect(()=>{ axios.get('/api/terms').then(r=>setRows(r.data)) },[])
+
+  async function save(){
+    const { data } = await axios.post('/api/terms',{ name, body, optional_sections:sections })
+    setRows([data, ...rows])
+    alert('Saved')
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Business Settings → Terms</h1>
+      <div className="grid grid-cols-3 gap-6">
+        <section className="col-span-2 bg-white border rounded-2xl p-4">
+          <input className="input mb-3" placeholder="Template Name" value={name} onChange={e=>setName(e.target.value)}/>
+          <textarea className="w-full border rounded-xl p-3 min-h-[420px]" value={body} onChange={e=>setBody(e.target.value)} placeholder="Paste your agreement here..."/>
+          <div className="mt-3">
+            <div className="font-medium mb-2">Optional sections</div>
+            {sections.map((s,i)=>(
+              <div key={i} className="border rounded-xl p-2 mb-2">
+                <input className="input w-full mb-2" value={s.label} onChange={e=>{ const c=[...sections]; c[i].label=e.target.value; setSections(c) }}/>
+                <textarea className="w-full border rounded-xl p-2" rows="4" value={s.body} onChange={e=>{ const c=[...sections]; c[i].body=e.target.value; setSections(c) }}/>
+              </div>
+            ))}
+          </div>
+          <button onClick={save} className="mt-3 px-4 py-2 rounded-xl text-white" style={{background:'#3c0b43'}}>Save Terms</button>
+        </section>
+        <aside className="col-span-1 bg-white border rounded-2xl p-4">
+          <div className="font-medium mb-2">Dynamic Values</div>
+          <ul className="text-sm">{TOKENS.map(t=><li key={t}><code>{t}</code></li>)}</ul>
+        </aside>
+      </div>
+    </div>
+  )
+}
+```
+
+> Route: `<Route path="/settings/terms" element={<Terms/>} />`
+
+---
+
+## d) Branding & Org
+
+`/client/src/pages/Branding.jsx`
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+export default function Branding(){
+  const [data,setData]=useState({brands:[], org:null})
+  const [brand,setBrand]=useState({ name:'Primary Brand' })
+
+  useEffect(()=>{ axios.get('/api/settings/branding').then(r=>setData(r.data)) },[])
+
+  async function addBrand(){
+    const {data:b}=await axios.post('/api/settings/branding', brand)
+    setData(d=>({...d, brands:[...d.brands,b]}))
+  }
+
+  async function updateOrg(patch){
+    await axios.post('/api/settings/org', patch)
+    setData(d=>({...d, org:{...d.org, ...patch}}))
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Business Settings → Branding</h1>
+
+      <div className="bg-white border rounded-2xl p-4 mb-6">
+        <div className="font-medium mb-2">Account Settings</div>
+        <div className="grid grid-cols-4 gap-3 text-sm">
+          <div>Time Zone<br/><select className="input" onChange={e=>updateOrg({timezone:e.target.value})}><option>America/Los_Angeles</option><option>America/New_York</option></select></div>
+          <div>Weeks start on<br/><select className="input" onChange={e=>updateOrg({week_start:e.target.value})}><option>sunday</option><option>monday</option></select></div>
+          <div>Footer<br/><label><input type="checkbox" onChange={e=>updateOrg({footer_email:e.target.checked})}/> Show email</label><br/><label><input type="checkbox" onChange={e=>updateOrg({footer_address:e.target.checked})}/> Show address</label></div>
+          <div>Crawl<br/><label><input type="checkbox" defaultChecked onChange={e=>updateOrg({crawl_allowed:e.target.checked})}/> Allow search engines</label></div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-6">
+        <section className="bg-white border rounded-2xl p-4">
+          <div className="font-medium mb-2">Add Brand</div>
+          <div className="grid grid-cols-2 gap-3">
+            <input className="input col-span-2" placeholder="Name" onChange={e=>setBrand({...brand,name:e.target.value})}/>
+            <input className="input" placeholder="Email" onChange={e=>setBrand({...brand,email:e.target.value})}/>
+            <input className="input" placeholder="Phone" onChange={e=>setBrand({...brand,phone:e.target.value})}/>
+            <input className="input col-span-2" placeholder="Website" onChange={e=>setBrand({...brand,website:e.target.value})}/>
+            <input className="input col-span-2" placeholder="Address" onChange={e=>setBrand({...brand,address:e.target.value})}/>
+            <input className="input" placeholder="Primary Color" defaultValue="#7c3aed" onChange={e=>setBrand({...brand,primary_color:e.target.value})}/>
+            <input className="input" placeholder="CTA Color" defaultValue="#7c3aed" onChange={e=>setBrand({...brand,cta_bg_color:e.target.value})}/>
+          </div>
+          <button onClick={addBrand} className="mt-3 px-3 py-2 rounded-lg text-white" style={{background:'#3c0b43'}}>Add Brand</button>
+        </section>
+
+        <section className="bg-white border rounded-2xl p-4">
+          <div className="font-medium mb-2">Brands</div>
+          {data.brands.map(b=>(
+            <div key={b.id} className="border rounded-xl p-3 mb-2 flex justify-between">
+              <div>
+                <div className="font-semibold">{b.name} {b.is_primary && <span className="text-xs">(Primary)</span>}</div>
+                <div className="text-sm text-neutral-500">{b.email} • {b.phone}</div>
+              </div>
+              <form action={`/api/settings/branding/${b.id}/logo`} method="post" encType="multipart/form-data">
+                <input type="file" name="file" onChange={e=>e.target.form.submit()}/>
+              </form>
+            </div>
+          ))}
+        </section>
+      </div>
+    </div>
+  )
+}
+```
+
+> Route: `<Route path="/settings/branding" element={<Branding/>} />`
+
+---
+
+## e) Tips setting (simple toggle)
+
+Add a toggle in `Branding.jsx` (or a small `/client/src/pages/PaymentsSettings.jsx`) that calls:
+
+```js
+await axios.post('/api/settings/org', { tips_enabled: true }) // or false
+```
+
+…and display “Tips are currently enabled/disabled” exactly like the screenshot.
+
+---
+
+# 4) “Website Integration” landing page (3 fast shortcuts)
+
+Add to `Integrations.jsx` a top strip of three big boxes with “Book Online”, “Link to a specific package”, “Sign In” that each creates the corresponding widget `kind` and copies the embed code. (You already have KINDS for `package_link` and `signin`; for “book online” you can use `availability_calendar` or a dedicated `lead_form`+`package_link` combo.)
+
+---
+
+# 5) How tokenized terms render inside a booking (MVP)
+
+You already have `/api/terms/render/:bookingId`. In `BookingDetail.jsx` add a “Terms” subtab that fetches and shows the rendered text with the dynamic tokens replaced.
+
+```jsx
+{tab==='Invoice' && /* existing */}
+{tab==='Terms' && (
+  <iframe title="terms" className="w-full h-[420px] border rounded-xl" src={`/api/terms/render/${id}`}/>
+)}
+```
+
+…and add “Terms” to the tab list.
+
+---
+
+# 6) Quick styles helper (inputs)
+
+Add once to `client/src/index.css`:
+
+```css
+.input{ @apply border rounded-xl px-3 py-2 w-full; }
+```
+
+---
+
+## What this unlocks right now
+
+* Edit **My Profile** with bio image, digest checkbox, device list.
+* **Widget Library** that spits out working `<script>` embed codes for: lead forms, galleries, staff profiles, calendars, schedulers, mini sessions, package links, and sign-in.
+* **Website Integration** feel (use the Integrations page + top shortcuts).
+* **Terms** editor with token list + optional sections; renders per-booking.
+* **Branding**: primary brand card, color swatches, logo upload, multi-brand; plus **Org** toggles (timezone, week start, footer, crawl, tips).
+
+If you want, send the next shots (proposal editor, “get embed code” modals themselves, availability rules, appointment scheduler, tax/travel, pricing matrix). I’ll keep translating everything 1:1 into schema + endpoints + components so your MVP reaches parity quickly and still feels Empress-level sexy 🌈👑.

@@ -1,0 +1,704 @@
+these are gold. I mapped what’s on those Check Cherry screens into concrete features, DB fields, API endpoints, and React components you can drop into the scaffold I gave you. This gets you a “looks-like-Check-Cherry, feels-like-Empress” v1 fast.
+
+---
+
+# What your screenshots translate to
+
+## A) Dashboard widgets
+
+1. Revenue Snapshot (by Scheduled Date)
+2. Upcoming Bookings (right rail)
+3. Bookings Awaiting Action counters:
+
+   * No Staff Assigned
+   * Awaiting Questionnaires
+   * Awaiting Backdrop
+   * Unselected Designs
+   * Pending Artwork
+   * Unapproved Artwork
+4. Proposals by Status (Unviewed / Viewed / Expired / Accepted)
+5. Lead Activity chart (by Date Created / Scheduled)
+6. Awaiting Final Payment list
+
+## B) Bookings list
+
+* Tabs: All Bookings / My Assigned Bookings
+* Filters: status toggles (confirmed/proposal/mini), Awaiting Signature, Awaiting Deposit, Balance Outstanding/Past Due, Date (scheduled/booked), Questionnaires, Staff, Backdrops, Designs, Media.
+* Cards show: package, date/time, client(s), venue, assigned staff avatars, finance badges.
+
+## C) Booking detail (tabs)
+
+* Tabs: Overview, Checklists, Designs, Questionnaires, Make Payment, Invoice, Attachments, Messages
+* Right rail: status chip, booking title, payment due, added by, created via, clients, contacts, staff, payments & balance, venue (with Google Maps link), public/private notes, deliverables, shareable link.
+
+---
+
+# 1) Schema upgrades (add to `/server/db/schema.sql`)
+
+```sql
+-- LEADS & PROPOSALS
+create table if not exists leads (
+  id uuid primary key default uuid_generate_v4(),
+  source text,
+  name text,
+  email text,
+  phone text,
+  created_at timestamptz default now()
+);
+
+create table if not exists proposals (
+  id uuid primary key default uuid_generate_v4(),
+  lead_id uuid references leads(id) on delete set null,
+  client_id uuid references clients(id) on delete set null,
+  status text not null default 'unviewed', -- unviewed|viewed|expired|accepted
+  expires_at timestamptz,
+  viewed_at timestamptz,
+  accepted_at timestamptz,
+  total_cents int not null default 0,
+  payload jsonb default '{}'::jsonb, -- line items, design, notes
+  created_at timestamptz default now()
+);
+
+-- QUESTIONNAIRES / DESIGNS / ARTWORK
+create table if not exists questionnaires (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid references bookings(id) on delete cascade,
+  title text,
+  status text default 'pending', -- pending|submitted|reviewed
+  data jsonb default '{}'::jsonb,
+  submitted_at timestamptz
+);
+
+create table if not exists designs (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid references bookings(id) on delete cascade,
+  type text, -- 'template','backdrop','artwork'
+  selected boolean default false,
+  approval_status text default 'pending', -- pending|approved|rejected
+  preview_url text,
+  notes text,
+  created_at timestamptz default now()
+);
+
+-- DELIVERABLES
+create table if not exists deliverables (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid references bookings(id) on delete cascade,
+  kind text, -- 'gallery','video','zip','link'
+  url text,
+  title text,
+  created_at timestamptz default now()
+);
+
+-- MESSAGES (client/staff thread)
+create table if not exists messages (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid references bookings(id) on delete cascade,
+  sender_role text, -- 'client'|'staff'|'admin'
+  body text,
+  channel text default 'internal', -- internal|email|sms
+  created_at timestamptz default now()
+);
+
+-- VIEW-LIKE ROLLUPS (materialized concept; run as SQL views or do in API)
+-- pending staff assignments
+-- (we’ll compute via queries in the API)
+```
+
+---
+
+# 2) Dashboard summary endpoint
+
+Create `/server/routes/dashboard.js` and mount it in `index.js`:
+
+```js
+// index.js
+import dashboard from './routes/dashboard.js';
+app.use('/api/dashboard', dashboard);
+```
+
+```js
+// routes/dashboard.js
+import { Router } from 'express';
+import { pool } from '../index.js';
+
+const r = Router();
+
+r.get('/summary', async (req, res, next) => {
+  try {
+    const now = new Date();
+    const last12 = await pool.query(`
+      select date_trunc('month', starts_at) as month,
+             sum(price_cents) filter (where status in ('confirmed','paid','completed'))::int as projected_cents,
+             sum(payments.amount_cents)::int as paid_cents
+      from bookings
+      left join payments on payments.booking_id = bookings.id
+      where starts_at >= (now() - interval '12 months')
+      group by 1 order by 1
+    `);
+
+    const upcoming = await pool.query(`
+      select b.id, c.name as client_name, b.starts_at, b.ends_at, b.status, b.location, p.name as package_name
+      from bookings b
+      left join clients c on c.id=b.client_id
+      left join packages p on p.id=b.package_id
+      where b.starts_at >= now()
+      order by b.starts_at asc
+      limit 6
+    `);
+
+    // Awaiting action counters
+    const noStaff = await pool.query(`
+      select count(distinct b.id) from bookings b
+      left join staff_assignments sa on sa.booking_id=b.id
+      where b.starts_at >= now() and sa.id is null and b.status in ('pending','confirmed','paid')
+    `);
+
+    const awaitingQuestionnaires = await pool.query(`
+      select count(*) from questionnaires q
+      join bookings b on b.id=q.booking_id
+      where q.status='pending' and b.starts_at >= now()
+    `);
+
+    const awaitingBackdrop = await pool.query(`
+      select count(*) from designs d
+      join bookings b on b.id=d.booking_id
+      where d.type='backdrop' and d.selected=false and b.starts_at >= now()
+    `);
+
+    const unselectedDesigns = await pool.query(`
+      select count(*) from designs d
+      join bookings b on b.id=d.booking_id
+      where d.type='template' and d.selected=false and b.starts_at >= now()
+    `);
+
+    const pendingArtwork = await pool.query(`
+      select count(*) from designs d
+      join bookings b on b.id=d.booking_id
+      where d.type='artwork' and d.approval_status='pending' and b.starts_at >= now()
+    `);
+
+    const unapprovedArtwork = await pool.query(`
+      select count(*) from designs d
+      join bookings b on b.id=d.booking_id
+      where d.type='artwork' and d.approval_status!='approved' and b.starts_at >= now()
+    `);
+
+    // Proposals by status
+    const proposals = await pool.query(`
+      select status, count(*) from proposals group by status
+    `);
+
+    // Lead activity by created date (last 12 mo)
+    const leads = await pool.query(`
+      select date_trunc('month', created_at) as month, count(*)::int as count
+      from leads
+      where created_at >= (now() - interval '12 months')
+      group by 1 order by 1
+    `);
+
+    // Awaiting final payment
+    const finalDue = await pool.query(`
+      select b.id, c.name as client_name, (i.total_cents - i.paid_cents)::int as balance_cents,
+             i.status, b.starts_at
+      from invoices i join bookings b on b.id=i.booking_id
+      join clients c on c.id=b.client_id
+      where i.status in ('unpaid','partial') and (i.total_cents - i.paid_cents) > 0
+      order by b.starts_at asc
+      limit 5
+    `);
+
+    res.json({
+      revenue: last12.rows,
+      upcoming: upcoming.rows,
+      awaiting: {
+        no_staff_assigned: Number(noStaff.rows[0].count || 0),
+        awaiting_questionnaires: Number(awaitingQuestionnaires.rows[0].count || 0),
+        awaiting_backdrop: Number(awaitingBackdrop.rows[0].count || 0),
+        unselected_designs: Number(unselectedDesigns.rows[0].count || 0),
+        pending_artwork: Number(pendingArtwork.rows[0].count || 0),
+        unapproved_artwork: Number(unapprovedArtwork.rows[0].count || 0)
+      },
+      proposals: proposals.rows,       // [{status,count}]
+      lead_activity: leads.rows,       // [{month,count}]
+      awaiting_final_payment: finalDue.rows
+    });
+  } catch (e) { next(e); }
+});
+
+export default r;
+```
+
+---
+
+# 3) Bookings search & filters
+
+Replace `/server/routes/bookings.js` with filterable querying:
+
+```js
+// add to top:
+function bool(v){ return v === 'true' || v === true; }
+
+r.get('/', async (req, res, next) => {
+  try {
+    const {
+      q, // text
+      show_confirmed, show_proposals, show_mini,
+      awaiting_signature, awaiting_deposit, balance_outstanding, balance_past_due,
+      start_scheduled, end_scheduled, start_booked, end_booked,
+      no_staff_assigned, has_unsubmitted_questionnaires,
+      missing_backdrop, unselected_templates, pending_artwork, unapproved_artwork
+    } = req.query;
+
+    const where = [];
+    const params = [];
+    const push = (clause, v) => { params.push(v); where.push(clause.replace(/\$(\d+)/g, ()=>'$'+params.length)); };
+
+    if (q) push("(lower(c.name) like lower('%' || $1 || '%') or lower(b.location) like lower('%' || $1 || '%'))", q);
+    if (bool(show_confirmed)) where.push("b.status in ('confirmed','paid','completed')");
+    if (bool(show_proposals)) where.push("b.status='proposal'");
+    if (bool(show_mini)) where.push("b.notes ilike '%mini%'"); // placeholder flag
+
+    if (start_scheduled) push('b.starts_at >= $1', start_scheduled);
+    if (end_scheduled)   push('b.starts_at < $1', end_scheduled);
+
+    if (bool(no_staff_assigned)) where.push('not exists (select 1 from staff_assignments sa where sa.booking_id=b.id)');
+    if (bool(has_unsubmitted_questionnaires)) where.push("exists (select 1 from questionnaires q where q.booking_id=b.id and q.status='pending')");
+    if (bool(missing_backdrop)) where.push("exists (select 1 from designs d where d.booking_id=b.id and d.type='backdrop' and d.selected=false)");
+    if (bool(unselected_templates)) where.push("exists (select 1 from designs d where d.booking_id=b.id and d.type='template' and d.selected=false)");
+    if (bool(pending_artwork)) where.push("exists (select 1 from designs d where d.booking_id=b.id and d.type='artwork' and d.approval_status='pending')");
+    if (bool(unapproved_artwork)) where.push("exists (select 1 from designs d where d.booking_id=b.id and d.type='artwork' and d.approval_status!='approved')");
+
+    if (bool(balance_outstanding)) where.push("(select coalesce(total_cents - paid_cents,0) from invoices i where i.booking_id=b.id) > 0");
+    if (bool(balance_past_due)) where.push("(select i2.status='unpaid' and (i2.total_cents - i2.paid_cents) > 0 from invoices i2 where i2.booking_id=b.id)");
+
+    const sql = `
+      select b.*, c.name as client_name, p.name as package_name
+      from bookings b
+      left join clients c on c.id=b.client_id
+      left join packages p on p.id=b.package_id
+      ${where.length ? 'where ' + where.join(' and ') : ''}
+      order by b.starts_at desc
+      limit 200
+    `;
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+```
+
+---
+
+# 4) Booking detail API (for those tabs)
+
+New `/server/routes/bookingDetail.js`:
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+const r = Router();
+
+r.get('/:id', async (req,res,next)=>{
+  try{
+    const [{ rows: b }, { rows: tasks }, { rows: qs }, { rows: dsg }, { rows: inv }, { rows: msgs }, { rows: dels }] =
+      await Promise.all([
+        pool.query(`select b.*, c.name as client_name, p.name as package_name from bookings b
+                    left join clients c on c.id=b.client_id
+                    left join packages p on p.id=b.package_id where b.id=$1`, [req.params.id]),
+        pool.query(`select * from tasks where booking_id=$1 order by sort_order asc`, [req.params.id]),
+        pool.query(`select * from questionnaires where booking_id=$1`, [req.params.id]),
+        pool.query(`select * from designs where booking_id=$1`, [req.params.id]),
+        pool.query(`select * from invoices where booking_id=$1`, [req.params.id]),
+        pool.query(`select * from messages where booking_id=$1 order by created_at asc`, [req.params.id]),
+        pool.query(`select * from deliverables where booking_id=$1`, [req.params.id])
+      ]);
+    res.json({
+      booking: b[0] || null,
+      tasks, questionnaires: qs, designs: dsg, invoice: inv[0] || null, messages: msgs, deliverables: dels
+    });
+  } catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount it:
+
+```js
+import bookingDetail from './routes/bookingDetail.js';
+app.use('/api/booking', bookingDetail);
+```
+
+---
+
+# 5) Frontend: Dashboard widgets
+
+Install charts:
+
+```bash
+cd client
+npm i chart.js react-chartjs-2
+```
+
+`/client/src/components/RevenueChart.jsx`
+
+```jsx
+import { Bar } from 'react-chartjs-2';
+import { Chart as ChartJS, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js';
+ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
+
+export default function RevenueChart({ rows=[] }){
+  const labels = rows.map(r=>new Date(r.month).toLocaleString(undefined,{month:'short', year:'2-digit'}));
+  const projected = rows.map(r=> (r.projected_cents||0)/100 );
+  const paid = rows.map(r=> (r.paid_cents||0)/100 );
+  return <Bar data={{
+    labels,
+    datasets:[
+      { label:'Projected Revenue', data: projected },
+      { label:'Paid', data: paid }
+    ]
+  }} />;
+}
+```
+
+`/client/src/pages/Home.jsx` — **replace** with a dashboard pulling `/api/dashboard/summary`:
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+import RevenueChart from '../components/RevenueChart.jsx'
+
+function Stat({label, value}) {
+  return (
+    <div className="p-4 rounded-2xl bg-white shadow-sm border">
+      <div className="text-sm text-neutral-500">{label}</div>
+      <div className="text-3xl font-semibold">{value}</div>
+    </div>
+  )
+}
+
+export default function Home(){
+  const [data,setData] = useState(null)
+  useEffect(()=>{ axios.get('/api/dashboard/summary').then(r=>setData(r.data)) },[])
+  if(!data) return <div>Loading…</div>
+
+  const a = data.awaiting
+  const proposals = (st)=> data.proposals.find(x=>x.status===st)?.count || 0
+
+  return (
+    <div>
+      <header className="mb-6">
+        <h1 className="text-3xl font-display">Dashboard</h1>
+        <p className="text-sm text-neutral-500">Revenue, pipeline, and actions</p>
+      </header>
+
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        <Stat label="Upcoming Bookings" value={data.upcoming.length}/>
+        <Stat label="Awaiting Final Payments" value={data.awaiting_final_payment.length}/>
+        <Stat label="Proposals (Accepted)" value={proposals('accepted')}/>
+      </div>
+
+      <section className="grid grid-cols-3 gap-6">
+        <div className="col-span-2 bg-white rounded-2xl border shadow-sm p-4">
+          <div className="font-semibold mb-3">Revenue Snapshot (12 mo)</div>
+          <RevenueChart rows={data.revenue}/>
+        </div>
+
+        <aside className="bg-white rounded-2xl border shadow-sm p-4">
+          <div className="font-semibold mb-3">Upcoming Bookings</div>
+          <ul className="space-y-3">
+            {data.upcoming.map(u=>(
+              <li key={u.id} className="text-sm">
+                <div className="font-medium">{u.client_name} — {u.package_name}</div>
+                <div className="text-neutral-500">{new Date(u.starts_at).toLocaleString()}</div>
+                <div className="text-neutral-500">{u.location || ''}</div>
+              </li>
+            ))}
+            {!data.upcoming.length && <div className="text-neutral-500">No upcoming bookings.</div>}
+          </ul>
+        </aside>
+      </section>
+
+      <section className="grid grid-cols-2 gap-6 mt-6">
+        <div className="bg-white rounded-2xl border shadow-sm p-4">
+          <div className="font-semibold mb-3">Bookings Awaiting Action</div>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div><div className="text-3xl font-semibold">{a.no_staff_assigned}</div><div className="text-xs text-neutral-500">No Staff</div></div>
+            <div><div className="text-3xl font-semibold">{a.awaiting_questionnaires}</div><div className="text-xs text-neutral-500">Awaiting Questionnaires</div></div>
+            <div><div className="text-3xl font-semibold">{a.awaiting_backdrop}</div><div className="text-xs text-neutral-500">Awaiting Backdrop</div></div>
+            <div><div className="text-3xl font-semibold">{a.unselected_designs}</div><div className="text-xs text-neutral-500">Unselected Designs</div></div>
+            <div><div className="text-3xl font-semibold">{a.pending_artwork}</div><div className="text-xs text-neutral-500">Pending Artwork</div></div>
+            <div><div className="text-3xl font-semibold">{a.unapproved_artwork}</div><div className="text-xs text-neutral-500">Unapproved Artwork</div></div>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border shadow-sm p-4">
+          <div className="font-semibold mb-3">Proposals by Status</div>
+          <div className="grid grid-cols-4 text-center gap-3">
+            {['unviewed','viewed','expired','accepted'].map(s=>(
+              <div key={s}>
+                <div className="text-3xl font-semibold">{proposals(s)}</div>
+                <div className="text-xs capitalize text-neutral-500">{s}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-6 grid grid-cols-2 gap-6">
+        <div className="bg-white rounded-2xl border shadow-sm p-4">
+          <div className="font-semibold mb-3">Lead Activity (created)</div>
+          <ul className="grid grid-cols-6 gap-2 text-xs text-neutral-700">
+            {data.lead_activity.map(m=>(
+              <li key={m.month}>
+                <div className="font-medium">{new Date(m.month).toLocaleString(undefined,{month:'short'})}</div>
+                <div>{m.count}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="bg-white rounded-2xl border shadow-sm p-4">
+          <div className="font-semibold mb-3">Awaiting Final Payment</div>
+          <ul className="space-y-2 text-sm">
+            {data.awaiting_final_payment.map(i=>(
+              <li key={i.id} className="flex items-center justify-between">
+                <span>{i.client_name}</span>
+                <span className="font-medium">${(i.balance_cents/100).toFixed(2)}</span>
+              </li>
+            ))}
+            {!data.awaiting_final_payment.length && <div className="text-neutral-500">All clear!</div>}
+          </ul>
+        </div>
+      </section>
+    </div>
+  )
+}
+```
+
+---
+
+# 6) Bookings page (filters UI)
+
+`/client/src/pages/Bookings.jsx`
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+export default function Bookings(){
+  const [rows,setRows]=useState([])
+  const [filters,setFilters]=useState({
+    show_confirmed:true, show_proposals:false, show_mini:false,
+    no_staff_assigned:false, has_unsubmitted_questionnaires:false,
+    missing_backdrop:false, unselected_templates:false,
+    pending_artwork:false, unapproved_artwork:false
+  })
+
+  async function load(){
+    const {data}=await axios.get('/api/bookings',{ params: filters })
+    setRows(data)
+  }
+  useEffect(()=>{ load() },[]) // initial
+
+  return (
+    <div className="grid grid-cols-4 gap-6">
+      <aside className="col-span-1">
+        <h1 className="text-2xl font-display mb-4">Bookings</h1>
+        <div className="bg-white border rounded-2xl p-4 space-y-2 text-sm">
+          {Object.keys(filters).map(k=>(
+            <label key={k} className="flex items-center gap-2">
+              <input type="checkbox" checked={filters[k]} onChange={e=>setFilters({...filters,[k]:e.target.checked})}/>
+              <span className="capitalize">{k.replaceAll('_',' ')}</span>
+            </label>
+          ))}
+          <button onClick={load} className="mt-3 px-3 py-2 rounded-lg text-white" style={{background:'linear-gradient(90deg,#d946ef,#fb7185,#f59e0b)'}}>Apply Filters</button>
+        </div>
+      </aside>
+      <section className="col-span-3 space-y-4">
+        {rows.map(b=>(
+          <article key={b.id} className="bg-white border rounded-2xl p-4 flex items-start justify-between">
+            <div>
+              <div className="font-semibold">{b.package_name} — {b.client_name}</div>
+              <div className="text-sm text-neutral-500">{new Date(b.starts_at).toLocaleString()} • {b.location||'—'}</div>
+              <div className="text-xs text-neutral-500 mt-1">{b.status}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-semibold">${(b.price_cents/100).toFixed(2)}</div>
+              <a className="text-sm underline text-blue-600" href={`/booking/${b.id}`}>Open</a>
+            </div>
+          </article>
+        ))}
+        {!rows.length && <div className="text-neutral-500">No results.</div>}
+      </section>
+    </div>
+  )
+}
+```
+
+---
+
+# 7) Booking detail page with tabs
+
+Add route in client router for `/booking/:id`, create:
+
+`/client/src/pages/BookingDetail.jsx`
+
+```jsx
+import { useEffect, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import axios from 'axios'
+
+const Tab = ({label,active,onClick}) =>
+  <button onClick={onClick} className={`px-3 py-2 rounded-lg ${active?'bg-neutral-100 font-semibold':'hover:bg-neutral-50'}`}>{label}</button>
+
+export default function BookingDetail(){
+  const { id } = useParams()
+  const [data,setData]=useState(null)
+  const [tab,setTab]=useState('Overview')
+
+  useEffect(()=>{ axios.get('/api/booking/'+id).then(r=>setData(r.data)) },[id])
+  if(!data) return <div>Loading…</div>
+  const b = data.booking
+
+  return (
+    <div className="grid grid-cols-3 gap-6">
+      <div className="col-span-2">
+        <h1 className="text-2xl font-display mb-2">{b.package_name} — {b.client_name}</h1>
+        <div className="text-sm text-neutral-500 mb-4">{new Date(b.starts_at).toLocaleString()} • {b.location||'—'}</div>
+
+        <div className="flex gap-2 mb-4">
+          {['Overview','Checklists','Designs','Questionnaires','Make Payment','Invoice','Attachments','Messages']
+            .map(t=><Tab key={t} label={t} active={tab===t} onClick={()=>setTab(t)}/>)}
+        </div>
+
+        <div className="bg-white border rounded-2xl p-4 min-h-[300px]">
+          {tab==='Overview' && (
+            <div className="space-y-3">
+              <p className="text-sm">Overview copy, inclusions, add-ons, notes.</p>
+            </div>
+          )}
+          {tab==='Checklists' && (
+            <ul className="space-y-2 text-sm">
+              {data.tasks.map(t=><li key={t.id} className="flex items-center gap-2">
+                <input type="checkbox" defaultChecked={t.done}/><span>{t.title}</span>
+              </li>)}
+              {!data.tasks.length && <div className="text-neutral-500">No tasks yet.</div>}
+            </ul>
+          )}
+          {tab==='Designs' && (
+            <div className="text-sm">
+              {data.designs.map(d=><div key={d.id} className="border rounded p-2 mb-2">
+                <div className="font-medium capitalize">{d.type}</div>
+                <div>Status: {d.approval_status} • Selected: {String(d.selected)}</div>
+                {d.preview_url && <img alt="" src={d.preview_url} className="mt-2 max-h-40 rounded" />}
+              </div>)}
+              {!data.designs.length && <div className="text-neutral-500">No designs yet.</div>}
+            </div>
+          )}
+          {tab==='Questionnaires' && (
+            <div className="text-sm">
+              {data.questionnaires.map(q=><div key={q.id} className="border rounded p-2 mb-2">
+                <div className="font-medium">{q.title||'Questionnaire'}</div>
+                <div>Status: {q.status}</div>
+              </div>)}
+              {!data.questionnaires.length && <div className="text-neutral-500">No questionnaires yet.</div>}
+            </div>
+          )}
+          {tab==='Make Payment' && (
+            <div className="text-sm">Stripe Elements goes here (use `/api/bookings/:id/deposit-intent`).</div>
+          )}
+          {tab==='Invoice' && (
+            <div className="text-sm">
+              {data.invoice ? (
+                <>
+                  <div>Total: ${(data.invoice.total_cents/100).toFixed(2)}</div>
+                  <div>Paid: ${(data.invoice.paid_cents/100).toFixed(2)}</div>
+                  <div>Status: {data.invoice.status}</div>
+                </>
+              ) : <div className="text-neutral-500">No invoice yet.</div>}
+            </div>
+          )}
+          {tab==='Attachments' && (
+            <div className="text-sm">
+              {data.deliverables.map(d=><div key={d.id}><a className="underline text-blue-600" href={d.url} target="_blank">{d.title||d.kind}</a></div>)}
+              {!data.deliverables.length && <div className="text-neutral-500">No attachments/deliverables.</div>}
+            </div>
+          )}
+          {tab==='Messages' && (
+            <div className="text-sm space-y-2">
+              {data.messages.map(m=><div key={m.id} className="border rounded p-2"><b>{m.sender_role}</b><div>{m.body}</div></div>)}
+              {!data.messages.length && <div className="text-neutral-500">No messages yet.</div>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <aside className="col-span-1">
+        <div className="bg-white border rounded-2xl p-4">
+          <div className="text-sm mb-2">Status</div>
+          <div className="px-2 py-1 rounded text-white inline-block" style={{background:'var(--chip-confirmed)'}}>{b.status}</div>
+          <div className="mt-4 text-sm">
+            <div className="font-medium">Payments & Balance</div>
+            {data.invoice ? (
+              <>
+                <div>Total ${(data.invoice.total_cents/100).toFixed(2)}</div>
+                <div>Paid ${(data.invoice.paid_cents/100).toFixed(2)}</div>
+              </>
+            ) : <div>Invoice pending</div>}
+          </div>
+          <div className="mt-4 text-sm">
+            <div className="font-medium">Venue</div>
+            <div>{b.location||'—'}</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  )
+}
+```
+
+Wire it in router:
+
+```jsx
+// main.jsx
+import BookingDetail from './pages/BookingDetail.jsx'
+// ...
+<Route path="/booking/:id" element={<BookingDetail/>} />
+```
+
+---
+
+# 8) Seed data starter (optional)
+
+```sql
+insert into clients (name,email) values ('Grace Bibby','grace@example.com');
+insert into packages (name,price_cents) values ('AI Print Booth (3h)', 253800);
+insert into bookings (client_id,package_id,starts_at,ends_at,location,price_cents,deposit_cents,status)
+select c.id, p.id, now() + interval '3 days', now() + interval '3 days 3 hours', 'Southside Spirit House, SF', 275362, 90000, 'confirmed'
+from clients c, packages p limit 1;
+insert into invoices (booking_id,total_cents,deposit_cents,paid_cents,status)
+select id, 275362, 90000, 275362, 'paid' from bookings limit 1;
+```
+
+---
+
+# 9) Visual vibe (Empress)
+
+Keep the left-rail gradient bar and chips; if you want the deep-plum Check Cherry header vibe, add this to the shell:
+
+```jsx
+<div className="fixed top-0 left-60 right-0 h-10 bg-[#3c0b43] text-white flex items-center px-4">
+  <span className="text-sm opacity-80">Project Rainbow CRM</span>
+</div>
+<main className="ml-60 pt-12 p-8"> ... </main>
+```
+
+---
+
+If you paste these files in now, you’ll have:
+
+* A **Dashboard** that mirrors Check Cherry’s widgets
+* A filterable **Bookings** list
+* A **Booking Detail** with the same tab set (placeholders ready to wire)
+* Server + SQL to power the counters and charts
+
+Send the next batch of screenshots when you’re ready — I’ll keep mapping each element 1:1 (proposal editor, quick send, share link tokens, etc.) and hand you the components/endpoints to drop in.

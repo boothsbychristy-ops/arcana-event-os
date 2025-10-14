@@ -1,0 +1,756 @@
+love these. I turned that batch into concrete DB tables, API routes, and React pages so your build now covers: **Users/Roles, Referral Links, Saved Payment Methods (Stripe), Design Collections, Questionnaire Templates, Message Templates + Automations, Coupons, and Backdrop Widget flag.** Paste in what you need and run.
+
+---
+
+# 0) Schema upgrades (append to `/server/db/schema.sql`)
+
+```sql
+-- ROLES & USERS (expanded)
+alter table users add column if not exists phone text;
+alter table users add column if not exists avatar_url text;
+alter table users add column if not exists archived boolean default false;
+
+-- CUSTOMER PROFILE (distinct from admin/staff)
+create table if not exists customers (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid unique references users(id) on delete cascade,
+  company text,
+  notes text,
+  referral_code text unique,          -- for referral links like /r/ABC123
+  created_at timestamptz default now()
+);
+
+-- SAVED PAYMENT METHODS (via Stripe)
+create table if not exists payment_methods (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references users(id) on delete cascade,
+  stripe_customer_id text,            -- maps to Stripe Customer
+  pm_id text,                         -- Stripe payment_method id
+  brand text, last4 text, exp_month int, exp_year int,
+  is_default boolean default false,
+  created_at timestamptz default now()
+);
+
+-- REFERRALS: track where a lead/booking came from
+create table if not exists referrals (
+  id uuid primary key default uuid_generate_v4(),
+  referral_code text,                 -- FK by code to customers.referral_code (denormalized for speed)
+  referred_lead_id uuid references leads(id) on delete cascade,
+  created_at timestamptz default now()
+);
+
+-- DESIGN COLLECTIONS (gallery & templates)
+create table if not exists design_collections (
+  id uuid primary key default uuid_generate_v4(),
+  title text not null,
+  description text,
+  vendor text,                        -- 3rd-party vendor if any
+  is_third_party boolean default false,
+  created_at timestamptz default now()
+);
+
+create table if not exists design_templates (
+  id uuid primary key default uuid_generate_v4(),
+  collection_id uuid references design_collections(id) on delete cascade,
+  title text not null,
+  preview_url text,
+  data jsonb default '{}'::jsonb,     -- layers, colors, etc.
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+-- QUESTIONNAIRE TEMPLATES + INSTANCES
+create table if not exists questionnaire_templates (
+  id uuid primary key default uuid_generate_v4(),
+  title text not null,
+  applies_to_packages text[] default '{}', -- optional scoping
+  schema jsonb not null,                   -- form schema (fields)
+  created_at timestamptz default now()
+);
+
+-- When a booking is created, copy templates into questionnaires table (already exists)
+alter table questionnaires add column if not exists template_id uuid references questionnaire_templates(id);
+
+-- MESSAGE TEMPLATES (manual + automated)
+create table if not exists message_templates (
+  id uuid primary key default uuid_generate_v4(),
+  scope text not null,                     -- bookings|proposals|leads|system
+  channel text not null default 'email',   -- email|sms|internal
+  name text not null,
+  subject text,
+  body text not null,                      -- supports {{tokens}}
+  created_at timestamptz default now()
+);
+
+-- AUTOMATIONS (event-based or scheduled)
+create table if not exists automations (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null,
+  scope text not null,                     -- bookings|proposals|leads|other
+  trigger text not null,                   -- booking_created|proposal_viewed|invoice_due|etc
+  template_id uuid references message_templates(id),
+  send_when text default 'immediate',      -- immediate|hours_before|days_after
+  offset_minutes int default 0,            -- +/- timing
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+-- COUPONS / FLEX PRICING
+create table if not exists coupons (
+  id uuid primary key default uuid_generate_v4(),
+  code text unique not null,
+  description text,
+  amount_cents int,                        -- fixed amount off
+  percent_off numeric,                     -- % off
+  applies_to text default 'booking',       -- booking|line_item
+  valid_from timestamptz,
+  valid_to timestamptz,
+  validity_basis text default 'book_date', -- book_date|event_date
+  applies_packages text[] default '{}',    -- optional: allowed packages
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+-- BACKDROP WIDGET FLAG (show in public gallery)
+alter table designs add column if not exists show_in_widget boolean default false;
+```
+
+---
+
+# 1) New services (Stripe customer & PMs) — `/server/services/stripeService.js`
+
+```js
+import Stripe from 'stripe';
+const stripe = new Stripe(process.env.STRIPE_SECRET || '', { apiVersion: '2024-06-20' });
+
+export async function ensureCustomer({ userId, email, name }) {
+  // store stripe_customer_id in payment_methods (or separate users stripe column if you prefer)
+  const customers = await stripe.customers.list({ email, limit: 1 });
+  return customers.data[0] || await stripe.customers.create({ email, name, metadata: { userId } });
+}
+
+export async function listPaymentMethods(customerId) {
+  return stripe.paymentMethods.list({ customer: customerId, type: 'card' });
+}
+
+export async function attachPaymentMethod({ customerId, paymentMethodId, setDefault=false }) {
+  await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+  if (setDefault) await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId }});
+  return stripe.paymentMethods.retrieve(paymentMethodId);
+}
+
+export async function createPaymentIntent({ amount_cents, currency='usd', customerId, metadata={} }) {
+  return stripe.paymentIntents.create({
+    amount: amount_cents, currency,
+    customer: customerId,
+    automatic_payment_methods: { enabled: true },
+    metadata
+  });
+}
+```
+
+---
+
+# 2) Routes
+
+## a) Users & Customers — `/server/routes/users.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+import { ensureCustomer, listPaymentMethods, attachPaymentMethod } from '../services/stripeService.js';
+
+const r = Router();
+
+r.get('/', async (_req,res,next)=>{
+  try {
+    const { rows } = await pool.query(`select u.*, coalesce(c.referral_code,'') as referral_code
+                                       from users u left join customers c on c.user_id=u.id
+                                       where not u.archived order by u.name nulls last`);
+    res.json(rows);
+  } catch(e){ next(e); }
+});
+
+// User detail (with upcoming events & saved PMs snapshot)
+r.get('/:id', async (req,res,next)=>{
+  try {
+    const userId = req.params.id;
+    const [{rows:u},{rows:events}] = await Promise.all([
+      pool.query(`select u.*, c.referral_code from users u left join customers c on c.user_id=u.id where u.id=$1`,[userId]),
+      pool.query(`select b.id,b.starts_at,b.package_id,p.name as package_name from bookings b
+                  left join packages p on p.id=b.package_id where b.client_id=$1 and b.starts_at >= now()
+                  order by b.starts_at asc limit 5`, [userId]) // if you store client_id as user_id
+    ]);
+    // stripe PMs (optional, only if you saved stripe_customer_id)
+    const { rows: pmMeta } = await pool.query(`select distinct stripe_customer_id from payment_methods where user_id=$1`,[userId]);
+    let payment_methods = [];
+    if (pmMeta[0]?.stripe_customer_id) {
+      const list = await listPaymentMethods(pmMeta[0].stripe_customer_id);
+      payment_methods = list.data.map(pm=>({ pm_id:pm.id, brand:pm.card.brand, last4:pm.card.last4, exp_month:pm.card.exp_month, exp_year:pm.card.exp_year }));
+    }
+    res.json({ user:u[0]||null, upcoming:events, payment_methods });
+  } catch(e){ next(e); }
+});
+
+// Create referral code if missing
+r.post('/:id/referral', async (req,res,next)=>{
+  try {
+    const userId = req.params.id;
+    const code = Math.random().toString(36).slice(2,8).toUpperCase();
+    await pool.query(`
+      insert into customers (user_id, referral_code)
+      values ($1,$2)
+      on conflict (user_id) do update set referral_code=excluded.referral_code
+    `,[userId, code]);
+    res.json({ referral_code: code, link: `${process.env.PUBLIC_URL || ''}/r/${code}` });
+  } catch(e){ next(e); }
+});
+
+// Save a payment method (after client-side Stripe collects PM id)
+r.post('/:id/payment-methods', async (req,res,next)=>{
+  try {
+    const userId = req.params.id;
+    const { email, name, payment_method_id, make_default } = req.body;
+    const customer = await ensureCustomer({ userId, email, name });
+    const pm = await attachPaymentMethod({ customerId: customer.id, paymentMethodId: payment_method_id, setDefault: !!make_default });
+    await pool.query(`insert into payment_methods (user_id, stripe_customer_id, pm_id, brand, last4, exp_month, exp_year, is_default)
+                      values ($1,$2,$3,$4,$5,$6,$7,$8)
+                      on conflict do nothing`,
+      [userId, customer.id, pm.id, pm.card.brand, pm.card.last4, pm.card.exp_month, pm.card.exp_year, !!make_default]);
+    res.json({ ok:true });
+  } catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount it:
+
+```js
+// server/index.js
+import users from './routes/users.js';
+app.use('/api/users', users);
+```
+
+## b) Referrals landing — `/server/routes/referrals.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+const r = Router();
+
+// /r/:code -> set cookie then redirect to lead form (your marketing site or in-app)
+r.get('/:code', async (req,res,next)=>{
+  try {
+    const code = req.params.code;
+    res.cookie('ref', code, { httpOnly:false, maxAge: 1000*60*60*24*30 });
+    // store a lightweight record once the lead is created; here we just bounce
+    res.redirect(process.env.REFERRAL_REDIRECT || '/lead');
+  } catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import referrals from './routes/referrals.js';
+app.use('/r', referrals);
+```
+
+When you create a **Lead**, read `req.cookies.ref` and write a `referrals` row linking lead → code.
+
+## c) Design Collections & Templates — `/server/routes/designs.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+const r = Router();
+
+r.get('/collections', async (_req,res,next)=>{
+  try{ const {rows}=await pool.query('select * from design_collections order by created_at desc'); res.json(rows); }
+  catch(e){ next(e); }
+});
+r.post('/collections', async (req,res,next)=>{
+  try{
+    const { title, description, is_third_party=false, vendor } = req.body;
+    const { rows } = await pool.query(`insert into design_collections (title,description,is_third_party,vendor) values ($1,$2,$3,$4) returning *`,
+      [title,description,!!is_third_party,vendor||null]);
+    res.status(201).json(rows[0]);
+  } catch(e){ next(e); }
+});
+r.get('/templates/:collectionId', async (req,res,next)=>{
+  try{ const {rows}=await pool.query('select * from design_templates where collection_id=$1 and active order by created_at desc',[req.params.collectionId]); res.json(rows); }
+  catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import designs from './routes/designs.js';
+app.use('/api/designs', designs);
+```
+
+## d) Questionnaire Templates — `/server/routes/questionnaires.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+const r = Router();
+
+r.get('/templates', async (_req,res,next)=>{
+  try{ const {rows}=await pool.query('select * from questionnaire_templates order by created_at desc'); res.json(rows); }
+  catch(e){ next(e); }
+});
+
+r.post('/templates', async (req,res,next)=>{
+  try{
+    const { title, schema, applies_to_packages=[] } = req.body;
+    const { rows } = await pool.query(`insert into questionnaire_templates (title,schema,applies_to_packages) values ($1,$2,$3) returning *`,
+      [title, schema, applies_to_packages]);
+    res.status(201).json(rows[0]);
+  } catch(e){ next(e); }
+});
+
+// copy templates to a booking
+r.post('/apply-to-booking/:bookingId', async (req,res,next)=>{
+  try {
+    const { rows:tpls } = await pool.query('select * from questionnaire_templates');
+    for (const t of tpls) {
+      await pool.query(`insert into questionnaires (booking_id, title, status, data, template_id)
+                        values ($1,$2,'pending','{}',$3) on conflict do nothing`, [req.params.bookingId, t.title, t.id]);
+    }
+    res.json({ ok:true, applied: tpls.length });
+  } catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import questionnairesRouter from './routes/questionnaires.js';
+app.use('/api/questionnaires', questionnairesRouter);
+```
+
+## e) Message Templates & Automations — `/server/routes/templates.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+const r = Router();
+
+r.get('/messages', async (_req,res,next)=>{
+  try{ const {rows}=await pool.query('select * from message_templates order by created_at desc'); res.json(rows); }
+  catch(e){ next(e); }
+});
+r.post('/messages', async (req,res,next)=>{
+  try{
+    const { scope, channel='email', name, subject, body } = req.body;
+    const { rows } = await pool.query(`insert into message_templates (scope,channel,name,subject,body) values ($1,$2,$3,$4,$5) returning *`,
+      [scope, channel, name, subject, body]);
+    res.status(201).json(rows[0]);
+  } catch(e){ next(e); }
+});
+
+r.get('/automations', async (_req,res,next)=>{
+  try{ const {rows}=await pool.query('select * from automations where active order by created_at desc'); res.json(rows); }
+  catch(e){ next(e); }
+});
+r.post('/automations', async (req,res,next)=>{
+  try{
+    const { name, scope, trigger, template_id, send_when='immediate', offset_minutes=0 } = req.body;
+    const { rows } = await pool.query(
+      `insert into automations (name,scope,trigger,template_id,send_when,offset_minutes)
+       values ($1,$2,$3,$4,$5,$6) returning *`,
+      [name, scope, trigger, template_id, send_when, offset_minutes]);
+    res.status(201).json(rows[0]);
+  } catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import templates from './routes/templates.js';
+app.use('/api/templates', templates);
+```
+
+> **Trigger hook (MVP):** in `/server/routes/bookings.js` after creating a booking, look up `automations` where trigger=`booking_created` and send the selected `message_templates` using Mailgun/Twilio. (For MVP, send immediately.)
+
+## f) Coupons — `/server/routes/coupons.js`
+
+```js
+import { Router } from 'express';
+import { pool } from '../index.js';
+const r = Router();
+
+r.get('/', async (_req,res,next)=>{
+  try{ const {rows}=await pool.query('select * from coupons where active order by created_at desc'); res.json(rows); }
+  catch(e){ next(e); }
+});
+
+r.post('/', async (req,res,next)=>{
+  try{
+    const { code, description, amount_cents, percent_off, applies_to='booking', valid_from, valid_to, validity_basis='book_date', applies_packages=[] } = req.body;
+    const { rows } = await pool.query(
+      `insert into coupons (code,description,amount_cents,percent_off,applies_to,valid_from,valid_to,validity_basis,applies_packages)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
+      [code, description, amount_cents||null, percent_off||null, applies_to, valid_from||null, valid_to||null, validity_basis, applies_packages]
+    );
+    res.status(201).json(rows[0]);
+  } catch(e){ next(e); }
+});
+
+// apply coupon (simple calc)
+r.post('/apply', async (req,res,next)=>{
+  try{
+    const { booking_id, code } = req.body;
+    const { rows:[c] } = await pool.query('select * from coupons where code=$1 and active', [code]);
+    if(!c) return res.status(404).json({ error:'Invalid code' });
+
+    const { rows:[b] } = await pool.query('select * from bookings where id=$1', [booking_id]);
+    if(!b) return res.status(404).json({ error:'Booking not found' });
+
+    let discount = 0;
+    if (c.amount_cents) discount = c.amount_cents;
+    else if (c.percent_off) discount = Math.round(b.price_cents * Number(c.percent_off) / 100);
+
+    const newTotal = Math.max(0, b.price_cents - discount);
+    await pool.query('update invoices set total_cents=$1 where booking_id=$2', [newTotal, booking_id]);
+
+    res.json({ ok:true, discount_cents:discount, new_total_cents:newTotal });
+  } catch(e){ next(e); }
+});
+
+export default r;
+```
+
+Mount:
+
+```js
+import coupons from './routes/coupons.js';
+app.use('/api/coupons', coupons);
+```
+
+---
+
+# 3) Client pages (fast shells you can style later)
+
+## Users list (`/client/src/pages/Users.jsx`)
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+import { Link } from 'react-router-dom'
+
+export default function Users(){
+  const [rows,setRows]=useState([])
+  const [tab,setTab]=useState('all')
+  useEffect(()=>{ axios.get('/api/users').then(r=>setRows(r.data)) },[])
+  const filtered = rows.filter(u=>{
+    if(tab==='admins') return u.role==='admin'
+    if(tab==='staff') return u.role==='staff'
+    if(tab==='customers') return u.role==='customer'
+    return true
+  })
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">All Users</h1>
+      <div className="flex gap-2 mb-4">
+        {['all','staff','admins','customers'].map(t=>(
+          <button key={t} onClick={()=>setTab(t)} className={`px-3 py-1 rounded-lg ${tab===t?'bg-neutral-200':'bg-neutral-100'}`}>{t}</button>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        {filtered.map(u=>(
+          <div key={u.id} className="bg-white border rounded-2xl p-4">
+            <div className="text-sm text-neutral-500 capitalize">{u.role}</div>
+            <div className="font-semibold">{u.name||'—'}</div>
+            <div className="text-sm">{u.email||''}</div>
+            <Link className="text-blue-600 underline text-sm" to={`/users/${u.id}`}>Show User</Link>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+## User detail (`/client/src/pages/UserDetail.jsx`)
+
+```jsx
+import { useEffect, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import axios from 'axios'
+
+export default function UserDetail(){
+  const { id } = useParams()
+  const [data,setData]=useState(null)
+  const [ref,setRef]=useState(null)
+
+  useEffect(()=>{ axios.get('/api/users/'+id).then(r=>{ setData(r.data); setRef(r.data.user?.referral_code) }) },[id])
+
+  async function createReferral(){
+    const { data } = await axios.post(`/api/users/${id}/referral`)
+    setRef(data.referral_code)
+  }
+
+  if(!data) return <div>Loading…</div>
+
+  return (
+    <div className="grid grid-cols-3 gap-6">
+      <section className="col-span-2">
+        <h1 className="text-2xl font-display">{data.user?.name}</h1>
+        <div className="text-sm text-neutral-600">{data.user?.email}</div>
+
+        <div className="bg-blue-50 border rounded-xl p-3 my-4">
+          {data.user?.last_login ? 'Logged in before' : 'This account has not yet logged in.'}
+        </div>
+
+        <div className="bg-white border rounded-2xl p-4">
+          <div className="font-medium mb-2">Referral Link</div>
+          {ref ? (
+            <div className="flex items-center gap-2">
+              <input readOnly className="border rounded px-2 py-1 flex-1" value={`${window.location.origin}/r/${ref}`} />
+              <button className="px-3 py-2 rounded-lg text-white" style={{background:'linear-gradient(90deg,#d946ef,#fb7185,#f59e0b)'}} onClick={()=>navigator.clipboard.writeText(`${window.location.origin}/r/${ref}`)}>Copy</button>
+            </div>
+          ) : (
+            <button onClick={createReferral} className="px-3 py-2 rounded-lg text-white" style={{background:'linear-gradient(90deg,#d946ef,#fb7185,#f59e0b)'}}>Generate Referral Link</button>
+          )}
+        </div>
+      </section>
+
+      <aside className="col-span-1 space-y-4">
+        <div className="bg-white border rounded-2xl p-4">
+          <div className="font-medium mb-2">Customer’s Events (Upcoming)</div>
+          <ul className="text-sm space-y-1">
+            {data.upcoming.map(e=><li key={e.id}>{new Date(e.starts_at).toLocaleString()} — {e.package_name}</li>)}
+            {!data.upcoming.length && <div className="text-neutral-500">No upcoming events.</div>}
+          </ul>
+        </div>
+        <div className="bg-white border rounded-2xl p-4">
+          <div className="font-medium mb-2">Saved Payment Methods</div>
+          <ul className="text-sm space-y-1">
+            {data.payment_methods.map(pm=><li key={pm.pm_id}>{pm.brand} •••• {pm.last4} (exp {pm.exp_month}/{pm.exp_year})</li>)}
+            {!data.payment_methods.length && <div className="text-neutral-500">None saved yet.</div>}
+          </ul>
+        </div>
+      </aside>
+    </div>
+  )
+}
+```
+
+> Add routes:
+
+```jsx
+// client/src/main.jsx
+import Users from './pages/Users.jsx'
+import UserDetail from './pages/UserDetail.jsx'
+// ...
+<Route path="/users" element={<Users/>} />
+<Route path="/users/:id" element={<UserDetail/>} />
+```
+
+## Design Collections page (`/client/src/pages/DesignCollections.jsx`)
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+export default function DesignCollections(){
+  const [rows,setRows]=useState([])
+  useEffect(()=>{ axios.get('/api/designs/collections').then(r=>setRows(r.data)) },[])
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Design Collections</h1>
+      <div className="grid grid-cols-3 gap-4">
+        {rows.map(c=>(
+          <div key={c.id} className="bg-white border rounded-2xl p-4">
+            <div className="font-semibold">{c.title}</div>
+            <div className="text-sm text-neutral-500">{c.description||''}</div>
+            {c.vendor && <div className="text-xs mt-2">Vendor: {c.vendor}</div>}
+            <a className="underline text-blue-600 text-sm" href={`/designs/${c.id}`}>View Templates</a>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+## Questionnaire Templates page (`/client/src/pages/QuestionnaireTemplates.jsx`)
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+export default function QuestionnaireTemplates(){
+  const [rows,setRows]=useState([])
+  useEffect(()=>{ axios.get('/api/questionnaires/templates').then(r=>setRows(r.data)) },[])
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Questionnaire Templates</h1>
+      <div className="bg-white border rounded-2xl p-4">
+        {rows.map(q=>(
+          <div key={q.id} className="border rounded-xl p-3 mb-2">
+            <div className="font-medium">{q.title}</div>
+            <div className="text-xs text-neutral-500">Packages: {q.applies_to_packages?.join(', ')||'All'}</div>
+          </div>
+        ))}
+        {!rows.length && <div className="text-neutral-500">No templates yet.</div>}
+      </div>
+    </div>
+  )
+}
+```
+
+## Message Templates & Automations (`/client/src/pages/Messaging.jsx`)
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+export default function Messaging(){
+  const [templates,setTemplates]=useState([])
+  const [autos,setAutos]=useState([])
+  useEffect(()=>{
+    axios.get('/api/templates/messages').then(r=>setTemplates(r.data))
+    axios.get('/api/templates/automations').then(r=>setAutos(r.data))
+  },[])
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-display mb-2">Custom Message Templates</h1>
+        <div className="bg-white border rounded-2xl p-4">
+          {templates.map(t=>(
+            <div key={t.id} className="border rounded-xl p-3 mb-2">
+              <div className="text-sm uppercase text-neutral-500">{t.scope} • {t.channel}</div>
+              <div className="font-semibold">{t.name}</div>
+              {t.subject && <div className="text-sm">Subject: {t.subject}</div>}
+            </div>
+          ))}
+          {!templates.length && <div className="text-neutral-500">No templates yet.</div>}
+        </div>
+      </div>
+      <div>
+        <h2 className="text-xl font-display mb-2">Automated Messages</h2>
+        <div className="bg-white border rounded-2xl p-4">
+          {autos.map(a=>(
+            <div key={a.id} className="border rounded-xl p-3 mb-2">
+              <div className="font-medium">{a.name}</div>
+              <div className="text-sm text-neutral-500">{a.scope} • trigger: {a.trigger} • {a.send_when} {a.offset_minutes?`${a.offset_minutes}min`:''}</div>
+            </div>
+          ))}
+          {!autos.length && <div className="text-neutral-500">No automations yet.</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+## Coupons (`/client/src/pages/Coupons.jsx`)
+
+```jsx
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+
+export default function Coupons(){
+  const [rows,setRows]=useState([])
+  useEffect(()=>{ axios.get('/api/coupons').then(r=>setRows(r.data)) },[])
+  return (
+    <div>
+      <h1 className="text-2xl font-display mb-4">Discount Codes</h1>
+      <div className="grid grid-cols-3 gap-4">
+        {rows.map(c=>(
+          <div key={c.id} className="bg-white border rounded-2xl p-4">
+            <div className="font-semibold">{c.code}</div>
+            <div className="text-sm">{c.description||''}</div>
+            <div className="text-sm mt-1">
+              {c.amount_cents ? `$${(c.amount_cents/100).toFixed(0)} off` : `${c.percent_off}% off`}
+            </div>
+            <div className="text-xs text-neutral-500 mt-2">
+              Valid: {c.valid_from ? new Date(c.valid_from).toLocaleDateString(): '—'} → {c.valid_to ? new Date(c.valid_to).toLocaleDateString() : '—'}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+> Add these routes to the shell nav so you can click around fast:
+
+```jsx
+// client/src/main.jsx (nav items)
+['Users','/users'],
+['Designs','/designs'],
+['Questionnaires','/questionnaires'],
+['Messaging','/messaging'],
+['Coupons','/coupons'],
+```
+
+and corresponding `<Route>` entries.
+
+---
+
+# 4) Backdrop widget toggle
+
+Anywhere you edit a design (e.g., in BookingDetail → Designs tab), add a checkbox bound to `show_in_widget` and PATCH `/api/designs/:id` (add a tiny patch route) so you can reproduce that “Show this backdrop in my Backdrop Gallery Widget” behavior.
+
+---
+
+# 5) Tiny automation hook (send on booking created)
+
+In `/server/routes/bookings.js` after `rows[0]`:
+
+```js
+// fire automations
+try {
+  const { rows:auto } = await pool.query(
+    `select a.*, mt.channel, mt.subject, mt.body
+     from automations a join message_templates mt on mt.id=a.template_id
+     where a.active and a.trigger='booking_created'`);
+  for (const a of auto) {
+    const rendered = (a.body || '').replaceAll('{{event_title}}', b.notes || a.name);
+    if (a.channel === 'email') {
+      // TODO: look up client email
+      // await sendEmail({ to: client.email, subject: a.subject || 'Booking Created', html: rendered })
+    } else if (a.channel === 'sms') {
+      // await sendSMS(client.phone, rendered)
+    }
+  }
+} catch { /* non-fatal for MVP */ }
+```
+
+---
+
+# 6) Quick seed (templates & coupons)
+
+```sql
+insert into message_templates (scope,channel,name,subject,body)
+values ('bookings','email','Customer Booking Confirmation','Event Confirmation: {{event_title}}','Thanks for booking!');
+
+insert into automations (name,scope,trigger,template_id,send_when,offset_minutes)
+select 'Customer Booking Confirmation','bookings','booking_created', id,'immediate',0 from message_templates where name='Customer Booking Confirmation' limit 1;
+
+insert into questionnaire_templates (title,schema)
+values ('Pre Event Check List', '{"fields":[{"key":"venue_contact","label":"Venue contact","type":"text"},{"key":"load_in","label":"Load-in time","type":"time"}]}');
+
+insert into coupons (code,description,amount_cents,applies_to,valid_from,valid_to)
+values ('BBCLOVE50','$50 off your booking', 5000, 'booking', now(), now() + interval '365 days');
+```
+
+---
+
+That’s the whole slice you showed, turned into runnable modules. If you want, send the next batch (proposal builder, quick send flows, invoice editor) and I’ll wire those up the same way so your MVP keeps locking into feature parity 💜🌈

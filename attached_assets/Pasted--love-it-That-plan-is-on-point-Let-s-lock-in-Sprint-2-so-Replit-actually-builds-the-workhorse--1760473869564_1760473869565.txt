@@ -1,0 +1,309 @@
+🔥 love it. That plan is on point. Let’s lock in Sprint 2 so Replit actually builds the “workhorse” flows (Clients → Proposal → Booking → Invoice/Payments) that mirror your Check Cherry screenshots.
+
+Below is a single pasteable brief for Replit (Builder Prompt v3). Drop it in and run. It extends what’s already scaffolded with minimal, *useful* tables, routes, and screens — no bloat — so you can demo end-to-end today.
+
+---
+
+# Builder Prompt v3 — Sprint 2
+
+**Goal:** Implement the core CRM loop: **Clients → Proposals → Bookings → Invoices/Payments**, plus Staff assignments and Action counters to match Check Cherry.
+
+## Keep stack/as-is from Sprint 1
+
+* Monorepo, JWT auth (roles: owner, admin, staff, client), Tailwind + shadcn UI, rainbow topbar, Recharts, PostgreSQL.
+* Existing Settings pages (Payments, Booking Engine, Privacy, Unavailable Notices, Extra Questions) should remain intact.
+
+---
+
+## Database — add these tables (append to migrations)
+
+```sql
+-- clients
+create table if not exists clients (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  first_name text,
+  last_name text,
+  email text,
+  phone text,
+  company text,
+  referral_code text,
+  referral_link text,
+  meta jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+-- staff
+create table if not exists staff (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  user_id uuid references users(id) on delete set null,
+  first_name text,
+  last_name text,
+  email text,
+  phone text,
+  avatar_url text,
+  roles text[] default array['attendant']::text[],
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+-- proposals
+create table if not exists proposals (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  client_id uuid references clients(id) on delete cascade,
+  title text not null,
+  status text not null default 'unviewed' check (status in ('unviewed','viewed','expired','accepted')),
+  expires_at timestamptz,
+  subtotal_cents int default 0,
+  tax_cents int default 0,
+  total_cents int default 0,
+  payload jsonb not null,          -- selected package/add-ons snapshot
+  created_at timestamptz default now(),
+  viewed_at timestamptz,
+  accepted_at timestamptz
+);
+
+-- bookings
+create table if not exists bookings (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  client_id uuid references clients(id) on delete cascade,
+  proposal_id uuid references proposals(id) on delete set null,
+  title text not null,
+  status text not null default 'confirmed' check (status in ('proposal','confirmed','paid','completed','canceled')),
+  start_at timestamptz,
+  end_at timestamptz,
+  venue_name text,
+  venue_address text,
+  balance_cents int default 0,
+  notes_public text,
+  notes_private text,
+  meta jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+-- staff assignments → bookings
+create table if not exists staff_assignments (
+  id uuid primary key default gen_random_uuid(),
+  booking_id uuid references bookings(id) on delete cascade,
+  staff_id uuid references staff(id) on delete cascade,
+  role text default 'attendant',
+  assigned_at timestamptz default now(),
+  unique (booking_id, staff_id)
+);
+
+-- invoices
+create table if not exists invoices (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  booking_id uuid references bookings(id) on delete cascade,
+  number text unique,
+  status text not null default 'open' check (status in ('open','partial','paid','void')),
+  issue_date date default now(),
+  due_date date,
+  subtotal_cents int default 0,
+  tax_cents int default 0,
+  total_cents int default 0,
+  balance_cents int default 0,
+  created_at timestamptz default now()
+);
+
+-- invoice line items
+create table if not exists invoice_line_items (
+  id uuid primary key default gen_random_uuid(),
+  invoice_id uuid references invoices(id) on delete cascade,
+  kind text default 'item', -- item | deposit | discount | fee | tax
+  description text not null,
+  quantity numeric default 1,
+  unit_cents int default 0,
+  total_cents int not null default 0,
+  sort_index int default 0
+);
+
+-- payments (tracks method + “intent id” for stubs)
+create table if not exists payments (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  invoice_id uuid references invoices(id) on delete cascade,
+  method text not null, -- card | check | cash | venmo | zelle | cashapp
+  processor text,       -- stripe | square | paypal | manual
+  processor_ref text,   -- payment_intent_id etc
+  amount_cents int not null,
+  received_at timestamptz default now(),
+  meta jsonb default '{}'::jsonb
+);
+
+-- tasks (kanban-style for bookings)
+create table if not exists tasks (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  booking_id uuid references bookings(id) on delete cascade,
+  title text not null,
+  status text not null default 'todo' check (status in ('todo','doing','done')),
+  sort_index int default 0,
+  created_at timestamptz default now()
+);
+
+-- messages (internal/client threads on a booking)
+create table if not exists messages (
+  id uuid primary key default gen_random_uuid(),
+  booking_id uuid references bookings(id) on delete cascade,
+  author_user_id uuid references users(id) on delete set null,
+  audience text default 'internal' check (audience in ('internal','client')),
+  body text not null,
+  created_at timestamptz default now()
+);
+```
+
+---
+
+## Server — new routes (under `/api/*`)
+
+Use zod validation; all routes scoped by logged-in owner.
+
+**Clients**
+
+* `GET /api/clients`
+* `POST /api/clients`
+* `GET /api/clients/:id`
+* `PATCH /api/clients/:id`
+
+**Staff**
+
+* `GET /api/staff`
+* `POST /api/staff`
+* `PATCH /api/staff/:id`
+
+**Proposals**
+
+* `GET /api/proposals?status=...`
+* `POST /api/proposals` (create from client + package snapshot → compute totals)
+* `PATCH /api/proposals/:id` (status transitions: viewed, accepted, expired)
+
+**Bookings**
+
+* `GET /api/bookings?range=upcoming|past&status=...`
+* `POST /api/bookings` (from accepted proposal OR quick-add)
+* `GET /api/bookings/:id` (includes client, staff, invoice summary)
+* `POST /api/bookings/:id/assign-staff` (add/remove)
+* `POST /api/bookings/:id/tasks` (add), `PATCH /api/tasks/:id` (drag/drop status)
+
+**Invoices/Payments**
+
+* `POST /api/invoices` (create for booking; auto generates deposit/final per payment_settings)
+* `GET /api/invoices/:id` (with line items + payments)
+* `POST /api/invoices/:id/items` (add line)
+* `POST /api/invoices/:id/payments`
+
+  * body: `{method, amount_cents}`
+  * if `method='card'` → call `/providers/stripe/square/paypal` adapter **stub** to mint a fake `processor_ref`, then insert `payments` row, then recompute invoice `balance_cents` and status.
+
+**Messages**
+
+* `GET /api/bookings/:id/messages`
+* `POST /api/bookings/:id/messages` (internal/client)
+
+---
+
+## Client — pages & components
+
+### A) Dashboard
+
+* Revenue chart (monthly totals from `invoices`), Upcoming Bookings (next 14 days), and counters:
+
+  * **No Staff Assigned** (bookings without `staff_assignments`)
+  * **Unselected Designs** (placeholder count from bookings.meta)
+  * **Pending Artwork** (placeholder count from bookings.meta)
+
+### B) Sales → **Bookings**
+
+* Tabs: **All Bookings**, **My Assigned**.
+* Filters (left column): status chips (Confirmed, Proposal, Mini), date range, awaiting signature/deposit/balance, no staff, missing backdrop.
+* Card layout like screenshots: title, date/time, venue, client, staff avatars, status badge. “Manage” kebab opens: View, Assign Staff, Message, Open Invoice.
+
+**Booking Detail**
+
+* Header with status pill and “Make Payment” button (opens invoice).
+* Sections (accordion):
+
+  * **Overview** (title, schedule, package summary text)
+  * **Checklists/Tasks** (simple Kanban: todo/doing/done)
+  * **Designs** (placeholder with “Unselected” flag)
+  * **Questionnaires** (list of templates applied — can be empty)
+  * **Invoice** (summary with link)
+  * **Attachments** (placeholder)
+  * **Messages** (internal/client toggle)
+
+### C) Sales → **Proposals**
+
+* Table with Status chips: Unviewed, Viewed, Expired, Accepted. Row actions: View, Mark Viewed, Accept, Expire.
+
+### D) Sales → **Invoices**
+
+* List with status filters: Open, Partial, Paid.
+* Invoice Detail: line items editable; “Record Payment” modal supports all configured payment methods (from `payment_methods` table). For `card`, call stub and mark success.
+
+### E) **Clients**
+
+* Grid/list with search; card shows email/phone/referral. Detail page: contact info + related proposals/bookings/invoices.
+
+### F) **Staff**
+
+* List + new staff modal; avatar upload (URL field for now). Assign from Booking detail.
+
+**UI**
+
+* Use `rounded-2xl` cards, Empress gradient topbar, shadcn buttons/inputs. Status chips:
+
+  * proposal=gray, confirmed=green, paid=emerald, completed=indigo, canceled=rose.
+
+---
+
+## Seed script (extend)
+
+Create:
+
+* 1–2 clients, 2 staff
+* 2 proposals (one unviewed, one accepted)
+* 2 bookings (one with staff, one without)
+* 2 invoices (one open, one paid partial)
+* Some tasks/messages to populate dashboards
+
+---
+
+## Acceptance Criteria
+
+1. **Clients**: create + edit persists; appears in booking/proposal pickers.
+2. **Proposals**: Mark “accepted” → creates a **Booking** with copied totals and links back to proposal.
+3. **Bookings list** mirrors the screenshot vibe (status chip, staff avatars, venue, filters work).
+4. **Assign Staff** persists and updates the “No Staff Assigned” counter on Dashboard.
+5. **Invoices**: add/remove line items, record payment with any enabled method (card uses stub) → recompute **balance** and **status**.
+6. **Tasks**: drag between columns (todo/doing/done) and order persists.
+7. **Messages**: can post internal note; shows with timestamp and author.
+8. **Everything** respects the logged-in owner; data survives reload.
+
+---
+
+### Run steps (same as Sprint 1)
+
+```
+npm run db:migrate
+npm run db:seed
+npm run dev
+# login: owner@empress.local / empress123
+```
+
+---
+
+### After Sprint 2 (coming next)
+
+* Packages/Add-ons catalog (with price rules + coupons/flex pricing).
+* Contract templates with token replacement + optional sections (like your Terms screenshots).
+* Widgets: Backdrop + Design galleries, Staff profiles, Availability calendar embeds.
+* Bulk Email/SMS (behind a “Message Center” with real Twilio/Mailgun keys).
+
+---
+
+If Replit errors on any column/route, paste the error here and I’ll hand you the exact patch (file + line).

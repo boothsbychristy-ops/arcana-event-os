@@ -1,0 +1,357 @@
+amazing — this is exactly the direction we want. Replit’s plan is fine, but we need to give it a sharper, build-ready brief so it scaffolds the right folders, env vars, DB tables, and screens on pass #1.
+
+Below is a single pasteable “Builder Prompt v2” you can drop into Replit’s agent. It tells it what to create now (MVP foundations + the Booking Engine / Payments you just screenshotted), what to stub (Stripe/Square/Twilio), and how it should look (Empress rainbow aesthetic). It also includes acceptance criteria so it actually verifies each page/route.
+
+---
+
+# Builder Prompt v2 — Empress Event OS (Check Cherry × Monday, Empress aesthetic)
+
+## Tech stack
+
+* **Monorepo** with two workspaces:
+
+  * `/server`: Node 20, Express, pg (PostgreSQL), zod, jsonwebtoken, bcrypt, multer, dayjs, uuid.
+  * `/client`: React 18 + Vite, React Router, Axios, TailwindCSS, shadcn/ui, lucide-react, framer-motion, Recharts.
+* **DB**: PostgreSQL (one database). Create a single migration runner we can call with `npm run db:migrate`.
+* **Auth**: simple JWT email+password for now (roles: `owner`, `admin`, `staff`, `client`). Seed one owner.
+* **Aesthetic**: Empress AI Studio—sleek rainbow gradient topbar (fuchsia→rose→amber), rounded-2xl, soft shadows. Use Tailwind config below.
+
+## Repo layout
+
+```
+/server
+  index.js
+  db/
+    pool.js
+    migrations/0001_init.sql
+  routes/
+    auth.js
+    payments.js
+    bookingEngine.js
+    ...
+/client
+  index.html
+  src/
+    main.jsx
+    App.jsx
+    lib/api.js
+    components/ui/* (shadcn)
+    pages/
+      Dashboard.jsx
+      Settings/
+        Payments.jsx
+        BookingEngine.jsx
+      Clients.jsx
+      Bookings.jsx
+      Proposals.jsx
+      Invoices.jsx
+      Staff.jsx
+      Templates.jsx
+  tailwind.config.js
+  postcss.config.js
+package.json (root with workspaces)
+```
+
+## Environment variables
+
+Create `.env` at repo root and load into both apps:
+
+```
+# server
+PORT=4000
+DATABASE_URL=postgres://<user>:<pass>@localhost:5432/empress_event_os
+JWT_SECRET=supersecretlocal
+
+# payments (stubs allowed initially)
+STRIPE_SECRET_KEY=
+SQUARE_ACCESS_TOKEN=
+PAYPAL_CLIENT_ID=
+PAYPAL_CLIENT_SECRET=
+
+# messaging (stubs for now)
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+MAILGUN_API_KEY=
+MAILGUN_DOMAIN=
+```
+
+## Tailwind theme (client/tailwind.config.js)
+
+Add brand tokens so the UI looks like Empress:
+
+```js
+theme: {
+  extend: {
+    colors: {
+      brand: {
+        50:'#fdf2ff',100:'#fae8ff',200:'#f5d0fe',300:'#f0abfc',
+        400:'#e879f9',500:'#d946ef',600:'#c026d3',700:'#a21caf',
+        800:'#86198f',900:'#701a75'
+      }
+    },
+    backgroundImage: {
+      'rainbow': 'linear-gradient(90deg,#d946ef 0%,#f97316 30%,#22c55e 60%,#06b6d4 100%)'
+    },
+    borderRadius: { '2xl':'1rem' }
+  }
+}
+```
+
+Topbar uses `bg-rainbow` with a subtle 6% overlay.
+
+## Initial DB schema (append to first migration)
+
+Create these tables to match the screenshots you shared (Payments + Booking Engine foundations and global settings). Use **exact names/columns**:
+
+```sql
+-- users (basic)
+create table if not exists users (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  password_hash text not null,
+  role text not null check (role in ('owner','admin','staff','client')),
+  first_name text,
+  last_name text,
+  business_name text,
+  phone text,
+  created_at timestamptz default now()
+);
+
+-- branding / business settings
+create table if not exists business_settings (
+  owner_id uuid primary key references users(id) on delete cascade,
+  time_zone text default 'America/Los_Angeles',
+  week_start text default 'Sunday',
+  primary_color text default '#3c0b43',
+  nav_bg text default '#1f0a23',
+  cta_color text default '#3c0b43'
+);
+
+-- payment processors
+create table if not exists payment_processors (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  kind text not null check (kind in ('stripe','square','paypal')),
+  status text not null default 'disconnected',
+  public_meta jsonb default '{}'::jsonb,
+  secret_meta jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+-- customer payment methods (invoice-visible options)
+create table if not exists payment_methods (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  kind text not null check (kind in ('card','check','cash','venmo','zelle','cashapp')),
+  label text not null,
+  enabled boolean default false,
+  show_on_invoices boolean default true,
+  auto_pay boolean default false,
+  sort_index int default 0,
+  config jsonb default '{}'::jsonb
+);
+
+-- global payment settings
+create table if not exists payment_settings (
+  owner_id uuid primary key references users(id) on delete cascade,
+  deposit_term text default 'retainer',
+  deposit_due_days int default 0,
+  final_due_days int default 30,
+  tips_enabled boolean default true
+);
+
+-- payment plans
+create table if not exists payment_plans (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  slug text unique,
+  spec jsonb not null,
+  enabled boolean default true,
+  sort_index int default 0
+);
+
+-- booking engine settings
+create table if not exists booking_engine_settings (
+  owner_id uuid primary key references users(id) on delete cascade,
+  header_text text default '',
+  subheader_text text default '',
+  cta_text text default 'Choose Now',
+  allow_multiple_packages boolean default true,
+  enable_captcha boolean default false
+);
+
+-- unavailable notices
+create table if not exists unavailable_notices (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  category text default 'default',
+  body text not null
+);
+
+-- privacy settings (GDPR / consent text)
+create table if not exists privacy_settings (
+  owner_id uuid primary key references users(id) on delete cascade,
+  request_consent boolean default true,
+  consent_message text default '',
+  privacy_policy_url text default ''
+);
+
+-- extra booking questions
+create table if not exists booking_questions (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  label text not null,
+  type text not null default 'text',
+  options jsonb default '[]'::jsonb,
+  placeholder text default '',
+  help_text text default '',
+  required boolean default false,
+  collect_during_booking boolean default true,
+  internal_only boolean default false,
+  sort_index int default 0
+);
+```
+
+## Server routes to implement now
+
+Mount under `/api/*`. Include input validation with zod where easy.
+
+1. **Auth**
+
+* `POST /api/auth/registerOwner` (seed one owner)
+* `POST /api/auth/login` → `{token, user}`
+
+2. **Payments** (fully working, even if processors are “connected” stubs)
+
+* `GET /api/payments/processors`
+* `POST /api/payments/processors/:kind/connect`  (stub: mark connected)
+* `POST /api/payments/processors/:kind/disconnect`
+* `GET /api/payments/methods`
+* `POST /api/payments/methods` (create)
+* `POST /api/payments/methods/:id` (patch: enabled, show_on_invoices, auto_pay, config, sort_index)
+* `GET /api/payments/settings`
+* `POST /api/payments/settings` (upsert)
+* `GET /api/payments/plans`
+* `POST /api/payments/plans` (create)
+
+3. **Booking Engine**
+
+* `GET /api/booking-engine/general`
+* `POST /api/booking-engine/general` (upsert)
+* `GET /api/booking-engine/notices`
+* `POST /api/booking-engine/notices` (create default/body)
+* `POST /api/booking-engine/notices/:id` (update body)
+* `GET /api/booking-engine/privacy`
+* `POST /api/booking-engine/privacy` (upsert)
+* `GET /api/booking-engine/questions`
+* `POST /api/booking-engine/questions` (create)
+* `POST /api/booking-engine/questions/:id` (update)
+
+> Note: keep a simple `ownerId` in middleware for now (the logged-in owner). Add multi-tenant later.
+
+## Client pages to build now
+
+### 1) **Dashboard.jsx**
+
+* Revenue snapshot (placeholder chart with monthly bars), upcoming bookings list (use mocked data), action counters (No staff assigned, Unselected Designs, etc.) — static for now.
+
+### 2) **Settings / Payments.jsx**
+
+* Left: Payment Processing cards for **Square** and **PayPal** with “Connect/Disconnect” (just flips stub).
+* Center: Additional Payment Settings
+
+  * Due Dates form: `deposit_term`, `deposit_due_days`, `final_due_days`.
+  * Payment Plans list (seed: Retainer+final 30 / Retainer monthly split / Pay in full).
+  * Tips toggle.
+* Right: Customer Payment Options list with enable/disable + show/hide + auto-pay badge for card.
+
+### 3) **Settings / BookingEngine.jsx** (tabbed)
+
+* Tabs: **General**, **Extra Questions**, **Unavailable Notices**, **Privacy**.
+* General: Header, Subheader, CTA; radio for **Multiple Packages** (single vs multi); Captcha toggle.
+* Extra Questions: list existing; button to add presets:
+
+  * Customer Address (group)
+  * Stair Setup (select: No stairs / 1 flight / 2+ flights), required
+  * Estimated Guest Count (text, internal)
+  * Insurance Requirements (textarea, internal)
+  * Text Opt In (checkbox Yes/No, required)
+* Unavailable Notices: default notice textarea; list of notices with inline edit.
+* Privacy: consent radio (Yes/No), consent message textarea, privacy policy URL.
+
+### 4) **Nav & Shell**
+
+* Topbar with rainbow gradient, logo slot, user avatar, “Create New” button.
+* Left nav sections: **Dashboard, Sales (Bookings, Proposals, Invoices), Manage (Clients, Staff, Templates), Settings (Payments, Booking Engine, Branding)**.
+
+## Seed data (script)
+
+On first run, create:
+
+* one owner user: `owner@empress.local / empress123`
+* `business_settings` with default colors/timezone
+* `payment_methods` defaults:
+
+  * card (enabled, auto_pay: true, sort_index 1)
+  * check (disabled), cash (disabled)
+  * venmo (enabled, config.handle placeholder)
+  * zelle (disabled), cashapp (enabled, config.tag placeholder)
+* `payment_plans` three seeds (as above)
+* `privacy_settings` consent on + message stub + policy URL placeholder
+* `unavailable_notices` single default body
+* `booking_engine_settings` with CTA “Choose Now”, multi-packages = true
+
+Expose a script:
+
+```
+npm run dev       # runs server on 4000 and client on 5173 with proxy
+npm run db:migrate
+npm run db:seed
+```
+
+## API stubs (payments & messaging)
+
+* Implement Stripe/Square/PayPal/Twilio as **adapters** in `/server/providers/*`. For MVP, return `{ok:true}` on “create intent” and store a fake `payment_intent_id`. We’ll swap real SDK calls after demo.
+
+## Visual spec (quick)
+
+* cards: `rounded-2xl border bg-white p-4 shadow-sm`
+* primary buttons: rounded-lg, white text, background `#3c0b43`
+* inputs: Tailwind “input” class (create a small utility CSS)
+* charts: Recharts, keep default colors, small legend
+
+## Routing & Proxy
+
+* Client dev server proxies `/api` → `http://localhost:4000`.
+* Protect routes with a simple “if no token → /login”.
+
+## Acceptance criteria (auto-check boxes)
+
+1. Visiting `/settings/payments` shows processor cards for Square/PayPal and a **Customer Payment Options** list containing **Credit Card**, **Check**, **Cash**, **Venmo**, **Zelle**, **Cashapp**; toggling a method persists and reloads correctly.
+2. Changing **deposit term / due days / final due days / tips** saves and survives page reload.
+3. `/settings/booking-engine`:
+
+   * **General** tab updates header/subheader/CTA, toggles **Multiple Packages** and **Enable Captcha**.
+   * **Extra Questions** tab can add “Stair Setup” & “Text Opt In” presets and they persist.
+   * **Unavailable Notices** tab saves a default message and displays it in the list.
+   * **Privacy** tab saves consent on/off, message, and policy URL.
+4. The topbar shows the Empress gradient and the UI uses rounded-2xl cards throughout.
+
+---
+
+### What to do in Replit UI right now
+
+1. Paste this entire prompt into the “continue” box.
+2. When it asks about Twilio/Stripe auth again: **decline**; we’re using stubs + env keys.
+3. Let it scaffold, then run:
+
+   * `npm run db:migrate`
+   * `npm run db:seed`
+   * `npm run dev`
+4. Log in with `owner@empress.local / empress123` and click:
+
+   * Settings → Payments
+   * Settings → Booking Engine
+
+If anything stalls or misnames a column, tell me the error and I’ll patch the exact file/line. When these pages are green, we’ll move to **Packages / Proposals / Invoices** next so you can mirror the rest of the Check Cherry flows.
