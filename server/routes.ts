@@ -245,8 +245,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/staff", async (req, res) => {
     try {
-      const data = insertStaffSchema.parse(req.body);
-      const staff = await storage.createStaff(data);
+      let data = { ...req.body };
+      
+      // If userId looks like an email, look up the user ID
+      if (data.userId && data.userId.includes('@')) {
+        const user = await storage.getUserByEmail(data.userId);
+        if (!user) {
+          return res.status(404).json({ error: "User not found with that email" });
+        }
+        data.userId = user.id;
+      }
+      
+      const validatedData = insertStaffSchema.parse(data);
+      const staff = await storage.createStaff(validatedData);
       res.json(staff);
     } catch (error) {
       if (error instanceof z.ZodError) {

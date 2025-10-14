@@ -1,16 +1,22 @@
 import { useParams } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, MapPin, DollarSign, Users } from "lucide-react";
+import { Calendar, MapPin, DollarSign, UserPlus, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useState } from "react";
 
 export default function BookingDetail() {
   const params = useParams();
   const bookingId = params.id;
+  const { toast } = useToast();
+  const [selectedStaffId, setSelectedStaffId] = useState<string>("");
 
   const { data: booking, isLoading } = useQuery({
     queryKey: ["/api/bookings", bookingId],
@@ -19,6 +25,74 @@ export default function BookingDetail() {
   const { data: invoice, isLoading: invoiceLoading } = useQuery({
     queryKey: ["/api/invoices/booking", bookingId],
   });
+
+  const { data: allStaff } = useQuery({
+    queryKey: ["/api/staff"],
+  });
+
+  const { data: bookingStaff = [] } = useQuery({
+    queryKey: ["/api/bookings", bookingId, "staff"],
+    enabled: !!bookingId,
+  });
+
+  const assignStaffMutation = useMutation({
+    mutationFn: async (staffId: string) => {
+      const res = await apiRequest("POST", `/api/bookings/${bookingId}/staff`, { staffId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bookings", bookingId, "staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+      toast({
+        title: "Success",
+        description: "Staff member assigned successfully",
+      });
+      setSelectedStaffId("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to assign staff member",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const removeStaffMutation = useMutation({
+    mutationFn: async (staffId: string) => {
+      const res = await apiRequest("DELETE", `/api/bookings/${bookingId}/staff/${staffId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bookings", bookingId, "staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+      toast({
+        title: "Success",
+        description: "Staff member removed successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to remove staff member",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAssignStaff = () => {
+    if (selectedStaffId) {
+      assignStaffMutation.mutate(selectedStaffId);
+    }
+  };
+
+  const handleRemoveStaff = (staffId: string) => {
+    removeStaffMutation.mutate(staffId);
+  };
+
+  // Get staff members not yet assigned to this booking
+  const assignedStaffIds = bookingStaff.map((s: any) => s.staffId);
+  const availableStaff = allStaff?.filter((s: any) => !assignedStaffIds.includes(s.id)) || [];
 
   if (isLoading || invoiceLoading) {
     return (
@@ -190,24 +264,69 @@ export default function BookingDetail() {
             <CardHeader>
               <CardTitle>Staff Assignments</CardTitle>
             </CardHeader>
-            <CardContent>
-              {booking?.staff?.length > 0 ? (
+            <CardContent className="space-y-4">
+              {bookingStaff.length > 0 && (
                 <div className="space-y-3">
-                  {booking.staff.map((staff: any, idx: number) => (
-                    <div key={idx} className="flex items-center gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={staff.avatarUrl} />
-                        <AvatarFallback>{staff.name?.charAt(0) || "S"}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium text-sm">{staff.name}</p>
-                        <p className="text-xs text-muted-foreground">{staff.role}</p>
+                  {bookingStaff.map((assignment: any) => {
+                    // Find the matching staff member from allStaff to get their details
+                    const staffMember = allStaff?.find((s: any) => s.id === assignment.staffId);
+                    return (
+                      <div key={assignment.staffId} className="flex items-center justify-between gap-3" data-testid={`staff-assignment-${assignment.staffId}`}>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={staffMember?.user?.avatarUrl} />
+                            <AvatarFallback>{staffMember?.user?.fullName?.charAt(0) || "S"}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-medium text-sm">{staffMember?.user?.fullName || "Unknown"}</p>
+                            <p className="text-xs text-muted-foreground">{staffMember?.title || assignment.role || "Staff"}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleRemoveStaff(assignment.staffId)}
+                          disabled={removeStaffMutation.isPending}
+                          data-testid={`button-remove-staff-${assignment.staffId}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No staff assigned</p>
+              )}
+              
+              {availableStaff.length > 0 && (
+                <div className="flex gap-2 pt-2 border-t">
+                  <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
+                    <SelectTrigger className="flex-1" data-testid="select-assign-staff">
+                      <SelectValue placeholder="Select staff member..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableStaff.map((staff: any) => (
+                        <SelectItem key={staff.id} value={staff.id} data-testid={`option-staff-${staff.id}`}>
+                          <div className="flex items-center gap-2">
+                            <span>{staff.user?.fullName || "Unknown"}</span>
+                            {staff.title && <span className="text-xs text-muted-foreground">({staff.title})</span>}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleAssignStaff}
+                    disabled={!selectedStaffId || assignStaffMutation.isPending}
+                    data-testid="button-assign-staff"
+                  >
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Assign
+                  </Button>
+                </div>
+              )}
+              
+              {bookingStaff.length === 0 && availableStaff.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No staff members available</p>
               )}
             </CardContent>
           </Card>
