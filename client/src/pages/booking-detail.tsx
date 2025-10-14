@@ -5,18 +5,28 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, MapPin, DollarSign, UserPlus, X } from "lucide-react";
+import { Calendar, MapPin, DollarSign, UserPlus, X, Plus, Trash2, Package } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
+import { formatDate } from "date-fns";
 
 export default function BookingDetail() {
   const params = useParams();
   const bookingId = params.id;
   const { toast } = useToast();
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
+  const [isDeliverableDialogOpen, setIsDeliverableDialogOpen] = useState(false);
+  const [newDeliverable, setNewDeliverable] = useState({
+    title: "",
+    kind: "link",
+    url: "",
+  });
 
   const { data: booking, isLoading } = useQuery({
     queryKey: ["/api/bookings", bookingId],
@@ -32,6 +42,11 @@ export default function BookingDetail() {
 
   const { data: bookingStaff = [] } = useQuery({
     queryKey: ["/api/bookings", bookingId, "staff"],
+    enabled: !!bookingId,
+  });
+
+  const { data: deliverables = [] } = useQuery({
+    queryKey: ["/api/bookings", bookingId, "deliverables"],
     enabled: !!bookingId,
   });
 
@@ -80,6 +95,54 @@ export default function BookingDetail() {
     },
   });
 
+  const createDeliverableMutation = useMutation({
+    mutationFn: async (deliverableData: typeof newDeliverable) => {
+      const res = await apiRequest("POST", `/api/bookings/${bookingId}/deliverables`, deliverableData);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bookings", bookingId, "deliverables"] });
+      toast({
+        title: "Success",
+        description: "Deliverable added successfully",
+      });
+      setIsDeliverableDialogOpen(false);
+      setNewDeliverable({
+        title: "",
+        kind: "link",
+        url: "",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add deliverable",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteDeliverableMutation = useMutation({
+    mutationFn: async (deliverableId: string) => {
+      const res = await apiRequest("DELETE", `/api/deliverables/${deliverableId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bookings", bookingId, "deliverables"] });
+      toast({
+        title: "Success",
+        description: "Deliverable removed successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to remove deliverable",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleAssignStaff = () => {
     if (selectedStaffId) {
       assignStaffMutation.mutate(selectedStaffId);
@@ -88,6 +151,16 @@ export default function BookingDetail() {
 
   const handleRemoveStaff = (staffId: string) => {
     removeStaffMutation.mutate(staffId);
+  };
+
+  const handleAddDeliverable = () => {
+    if (newDeliverable.title && newDeliverable.url) {
+      createDeliverableMutation.mutate(newDeliverable);
+    }
+  };
+
+  const handleDeleteDeliverable = (deliverableId: string) => {
+    deleteDeliverableMutation.mutate(deliverableId);
   };
 
   // Get staff members not yet assigned to this booking
@@ -139,6 +212,7 @@ export default function BookingDetail() {
               <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
               <TabsTrigger value="tasks" data-testid="tab-tasks">Tasks</TabsTrigger>
               <TabsTrigger value="messages" data-testid="tab-messages">Messages</TabsTrigger>
+              <TabsTrigger value="deliverables" data-testid="tab-deliverables">Deliverables</TabsTrigger>
               <TabsTrigger value="invoice" data-testid="tab-invoice">Invoice</TabsTrigger>
             </TabsList>
             
@@ -180,6 +254,140 @@ export default function BookingDetail() {
               <Card className="rounded-2xl">
                 <CardContent className="py-8">
                   <p className="text-center text-muted-foreground">No messages yet</p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="deliverables" className="mt-4">
+              <Card className="rounded-2xl">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+                  <CardTitle>Deliverables</CardTitle>
+                  <Dialog open={isDeliverableDialogOpen} onOpenChange={setIsDeliverableDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" data-testid="button-add-deliverable">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Deliverable
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent data-testid="dialog-add-deliverable">
+                      <DialogHeader>
+                        <DialogTitle>Add Deliverable</DialogTitle>
+                        <DialogDescription>
+                          Add a new deliverable to track for this booking
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="title">Title *</Label>
+                          <Input
+                            id="title"
+                            placeholder="Event Photos Album"
+                            value={newDeliverable.title}
+                            onChange={(e) => setNewDeliverable({ ...newDeliverable, title: e.target.value })}
+                            data-testid="input-deliverable-title"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="kind">Type *</Label>
+                          <Select
+                            value={newDeliverable.kind}
+                            onValueChange={(value) => setNewDeliverable({ ...newDeliverable, kind: value })}
+                          >
+                            <SelectTrigger id="kind" data-testid="select-deliverable-kind">
+                              <SelectValue placeholder="Select type..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="link" data-testid="option-kind-link">Link</SelectItem>
+                              <SelectItem value="photo" data-testid="option-kind-photo">Photo</SelectItem>
+                              <SelectItem value="video" data-testid="option-kind-video">Video</SelectItem>
+                              <SelectItem value="file" data-testid="option-kind-file">File</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="url">URL *</Label>
+                          <Input
+                            id="url"
+                            placeholder="https://photos.example.com/album123"
+                            value={newDeliverable.url}
+                            onChange={(e) => setNewDeliverable({ ...newDeliverable, url: e.target.value })}
+                            data-testid="input-deliverable-url"
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          onClick={() => setIsDeliverableDialogOpen(false)}
+                          data-testid="button-cancel-deliverable"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleAddDeliverable}
+                          disabled={!newDeliverable.title || !newDeliverable.url || createDeliverableMutation.isPending}
+                          data-testid="button-save-deliverable"
+                        >
+                          {createDeliverableMutation.isPending ? "Adding..." : "Add Deliverable"}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </CardHeader>
+                <CardContent>
+                  {deliverables.length > 0 ? (
+                    <div className="space-y-4">
+                      <div className="rounded-xl border">
+                        <div className="grid grid-cols-4 gap-4 p-3 border-b bg-muted/50 font-medium text-sm">
+                          <div>Title</div>
+                          <div>Type</div>
+                          <div>URL</div>
+                          <div className="text-right">Actions</div>
+                        </div>
+                        {deliverables.map((deliverable: any) => (
+                          <div
+                            key={deliverable.id}
+                            className="grid grid-cols-4 gap-4 p-3 border-b last:border-0 items-center"
+                            data-testid={`deliverable-row-${deliverable.id}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Package className="h-4 w-4 text-muted-foreground" />
+                              <span className="font-medium">{deliverable.title}</span>
+                            </div>
+                            <div>
+                              <Badge variant="secondary" className="capitalize">
+                                {deliverable.kind}
+                              </Badge>
+                            </div>
+                            <div className="text-sm truncate">
+                              <a
+                                href={deliverable.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline"
+                                data-testid={`link-deliverable-${deliverable.id}`}
+                              >
+                                {deliverable.url}
+                              </a>
+                            </div>
+                            <div className="flex justify-end">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteDeliverable(deliverable.id)}
+                                disabled={deleteDeliverableMutation.isPending}
+                                data-testid={`button-delete-deliverable-${deliverable.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8">No deliverables yet. Add one to get started.</p>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
