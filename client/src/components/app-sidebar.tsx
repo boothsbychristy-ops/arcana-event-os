@@ -12,6 +12,7 @@ import {
   CreditCard,
   Globe,
   UserPlus,
+  ClipboardList,
 } from "lucide-react";
 import {
   Sidebar,
@@ -45,6 +46,7 @@ const menuItems = [
     group: "Manage",
     items: [
       { title: "Staff", url: "/staff", icon: UserSquare, testId: "link-staff" },
+      { title: "Staff Applications", url: "/staff-applications", icon: ClipboardList, testId: "link-staff-applications" },
       { title: "Tasks", url: "/tasks", icon: CheckSquare, testId: "link-tasks" },
       { title: "Messages", url: "/messages", icon: MessageSquare, testId: "link-messages" },
     ],

@@ -14,6 +14,7 @@ import Dashboard from "@/pages/dashboard";
 import Clients from "@/pages/clients";
 import Leads from "@/pages/leads";
 import Staff from "@/pages/staff";
+import StaffApplications from "@/pages/staff-applications";
 import Proposals from "@/pages/proposals";
 import Bookings from "@/pages/bookings";
 import BookingDetail from "@/pages/booking-detail";
@@ -54,6 +55,7 @@ function Router() {
       <Route path="/clients">{() => <ProtectedRoute component={Clients} />}</Route>
       <Route path="/leads">{() => <ProtectedRoute component={Leads} />}</Route>
       <Route path="/staff">{() => <ProtectedRoute component={Staff} />}</Route>
+      <Route path="/staff-applications">{() => <ProtectedRoute component={StaffApplications} />}</Route>
       <Route path="/proposals">{() => <ProtectedRoute component={Proposals} />}</Route>
       <Route path="/bookings">{() => <ProtectedRoute component={Bookings} />}</Route>
       <Route path="/bookings/:id">{() => <ProtectedRoute component={BookingDetail} />}</Route>
