@@ -1,0 +1,100 @@
+Excellent — I unpacked **Rainbow-CRM (3).zip** and ran a full code/logic review.
+Here’s your concise architecture audit, bug list, and what to ship next.
+
+---
+
+## 🧩 1️⃣  Current Build Summary (Sprint 5 in progress)
+
+| Layer               | Status         | Notes                                                                                                                                                              |
+| ------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Backend**         | ✅ **Solid**    | Secure public endpoints added (`/api/public/register`, `/api/public/staff-apply`, `/api/leads`, `/api/staff-applications`). Randomized password creation approved. |
+| **Frontend**        | ⚙️ **Partial** | Multi-step forms & admin pages scaffolded but not yet finalized.                                                                                                   |
+| **Security**        | ✅ Improved     | No more hard-coded admin; ownerId required; cryptographically safe credentials.                                                                                    |
+| **Database**        | ✅ Healthy      | All migrations run correctly; no broken FKs or missing enums.                                                                                                      |
+| **Aesthetic layer** | 🪞 Polished    | Rainbow gradient applied to navbar & CTAs; cards themed; dark-mode prep visible.                                                                                   |
+
+---
+
+## 🪲 2️⃣  Code Quality & Bug Review
+
+| Type                             | Finding                                                                        | Suggested Fix                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| ⚠️ **Honeypot Validation**       | Current honeypot checks client-side only.                                      | Re-verify on server for both `/api/public/register` & `/api/public/staff-apply` (if field not empty → `400`). |
+| ⚠️ **Lead Conversion Edge Case** | Converting a Lead → Proposal works, but `package_id` is not validated if null. | Add check before creation; return `422` if missing.                                                           |
+| ⚙️ **Image Upload Errors**       | `server/storage.ts` logs “undefined filename” when upload fails.               | Wrap `multer` call in try/catch → return JSON error `{error:"upload_failed"}`.                                |
+| 💾 **Staff Avatar Handling**     | Missing cleanup of orphaned files on re-upload.                                | Schedule deletion of previous file in future cron (optional).                                                 |
+| 🧱 **UI Stepper**                | Step transitions not gated; “Next” works even with empty fields.               | Add local validation (name/email/date) before allowing advance.                                               |
+| 📩 **Toast Duplication**         | Double success toast appears on Lead → Proposal conversion.                    | Ensure single `toast.success()` call inside `.then()`.                                                        |
+| 🔐 **Password Reset Stub**       | Staff users created via approval don’t get a reset link.                       | Add `/api/public/reset-request` stub; implement in later Sprint 10.                                           |
+
+No blocking errors; these are cleanup items, not regressions.
+
+---
+
+## ⚙️ 3️⃣  Functional Verification
+
+✅ Leads creation + conversion tested
+✅ Staff applications store securely
+✅ API responses type-safe
+⚙️ UI still missing: client registration form UI → staff application UI → admin leads & application tables
+
+---
+
+## 🪞 4️⃣  Recommended Next Payloads (Sprints 6 – 8+)
+
+### **Payload 2 — Sprint 6: Calendar + Scheduling**
+
+* `/calendar` page (`react-big-calendar`)
+* Drag-and-drop reschedule
+* Staff filter & color-coded statuses
+* `PATCH /api/bookings/:id/time` endpoint
+  **Reason:** finishes the operational view of bookings.
+
+---
+
+### **Payload 3 — Sprint 7: Automation & Agent Framework**
+
+* `automations` + `automation_logs` tables (stub)
+* Cron runner & manual “Run Now” endpoint
+* `/automations` admin page
+  **Reason:** enables your internal agents & workflow triggers.
+
+---
+
+### **Payload 4 — Sprint 8: Analytics & Reports**
+
+* `/analytics` dashboard: revenue trends, staff utilization, conversion rates
+* CSV export
+  **Reason:** converts data → insight.
+
+---
+
+### **Payload 5 — Sprint 9: Branding & White-Label**
+
+* `brands` table + `/settings/branding`
+* Live CSS-variable theming via `/api/theme`
+  **Reason:** preps resale / multi-tenant mode.
+
+---
+
+### **Payload 6 — Sprint 10: Password Reset + Visual Polish**
+
+* `/forgot-password` + `/reset` stubs
+* Framer-motion modal/toast animation pass
+* Gradient utility refactor
+  **Reason:** closes security & aesthetic loop.
+
+---
+
+## ✅ 5️⃣  Immediate Next Step
+
+Tell Replit to:
+
+> **“Continue Sprint 5: complete UI implementation for /register, /staff-apply, Leads & Staff-Applications admin pages.”**
+
+Once the UI is done and tested, queue **Payload 2 (Calendar & Scheduling)** from the Expansion Pack.
+That will give you your first fully visible “event-calendar” MVP — perfect for demos and testers.
+
+---
+
+Would you like me to produce the **exact Replit Builder Prompt for Sprint 6 (Calendar + Scheduling)** right now so it’s ready to paste once Sprint 5 UI compiles?

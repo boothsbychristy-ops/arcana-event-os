@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation } from "wouter";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -20,7 +19,6 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export default function Login() {
   const { login } = useAuth();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<LoginFormData>({
@@ -39,7 +37,8 @@ export default function Login() {
         title: "Welcome back!",
         description: "You've successfully logged in.",
       });
-      setLocation("/");
+      // Use hard navigation to ensure clean state
+      window.location.href = "/";
     } catch (error) {
       toast({
         title: "Login failed",

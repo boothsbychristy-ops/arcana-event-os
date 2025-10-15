@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-import { useLocation } from "wouter";
 
 interface User {
   id: string;
@@ -33,7 +32,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [, setLocation] = useLocation();
 
   useEffect(() => {
     // Check for stored token on mount
@@ -115,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setToken(null);
     localStorage.removeItem("auth_token");
-    setLocation("/login");
+    window.location.href = "/login";
   };
 
   return (
