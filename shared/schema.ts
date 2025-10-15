@@ -259,7 +259,7 @@ export const tasks = pgTable("tasks", {
   description: text("description"),
   status: text("status").notNull().default("todo"), // todo, in_progress, review, done
   priority: text("priority").notNull().default("medium"), // low, medium, high, urgent
-  assignedTo: varchar("assigned_to").references(() => staff.id),
+  assignedTo: varchar("assigned_to").references(() => users.id),
   dueAt: timestamp("due_at"),
   linkedClientId: varchar("linked_client_id").references(() => clients.id),
   linkedBookingId: varchar("linked_booking_id").references(() => bookings.id),
@@ -268,6 +268,58 @@ export const tasks = pgTable("tasks", {
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Task comments for threaded discussions
+export const taskComments = pgTable("task_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").references(() => tasks.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Task attachments for file uploads
+export const taskAttachments = pgTable("task_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").references(() => tasks.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  fileName: text("file_name").notNull(),
+  fileUrl: text("file_url").notNull(),
+  fileSize: integer("file_size"),
+  mimeType: text("mime_type"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Subtasks for checklist items
+export const subtasks = pgTable("subtasks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").references(() => tasks.id, { onDelete: "cascade" }).notNull(),
+  title: text("title").notNull(),
+  isCompleted: boolean("is_completed").notNull().default(false),
+  sortIndex: integer("sort_index").notNull().default(0),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Task activity log for audit trail
+export const taskActivity = pgTable("task_activity", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").references(() => tasks.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  action: text("action").notNull(), // created, updated, moved, commented, assigned, etc.
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Board members for permissions
+export const boardMembers = pgTable("board_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").references(() => boards.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  role: text("role").notNull().default("viewer"), // owner, editor, viewer
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // Message threads
@@ -344,6 +396,11 @@ export const insertBoardSchema = createInsertSchema(boards).omit({ id: true, cre
 export const insertBoardGroupSchema = createInsertSchema(boardGroups).omit({ id: true, createdAt: true });
 export const insertTaskStatusSchema = createInsertSchema(taskStatuses).omit({ id: true });
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true, completedAt: true });
+export const insertTaskCommentSchema = createInsertSchema(taskComments).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTaskAttachmentSchema = createInsertSchema(taskAttachments).omit({ id: true, createdAt: true });
+export const insertSubtaskSchema = createInsertSchema(subtasks).omit({ id: true, createdAt: true, completedAt: true });
+export const insertTaskActivitySchema = createInsertSchema(taskActivity).omit({ id: true, createdAt: true });
+export const insertBoardMemberSchema = createInsertSchema(boardMembers).omit({ id: true, createdAt: true });
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
 export const insertDeliverableSchema = createInsertSchema(deliverables).omit({ id: true, createdAt: true });
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true }).extend({
@@ -414,6 +471,21 @@ export type InsertTaskStatus = z.infer<typeof insertTaskStatusSchema>;
 
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = z.infer<typeof insertTaskSchema>;
+
+export type TaskComment = typeof taskComments.$inferSelect;
+export type InsertTaskComment = z.infer<typeof insertTaskCommentSchema>;
+
+export type TaskAttachment = typeof taskAttachments.$inferSelect;
+export type InsertTaskAttachment = z.infer<typeof insertTaskAttachmentSchema>;
+
+export type Subtask = typeof subtasks.$inferSelect;
+export type InsertSubtask = z.infer<typeof insertSubtaskSchema>;
+
+export type TaskActivity = typeof taskActivity.$inferSelect;
+export type InsertTaskActivity = z.infer<typeof insertTaskActivitySchema>;
+
+export type BoardMember = typeof boardMembers.$inferSelect;
+export type InsertBoardMember = z.infer<typeof insertBoardMemberSchema>;
 
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
