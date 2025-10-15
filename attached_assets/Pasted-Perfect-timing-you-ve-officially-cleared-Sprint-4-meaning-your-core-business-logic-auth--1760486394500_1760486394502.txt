@@ -1,0 +1,123 @@
+Perfect timing 👑 — you’ve officially cleared **Sprint 4**, meaning your core business logic (auth → proposal → booking → invoice → dashboard) is solid and ready for scale.
+
+Now we can shift from “make it work” to “make it *complete* and connected.”
+Here’s a smart **five-payload roadmap** that balances growth, polish, and stability:
+
+---
+
+## 🌈 **Payload 1 — Sprint 5: Event Registration & Onboarding Flow**
+
+**Goal:** Let clients and staff register for events directly through the CRM (or embedded widgets).
+
+**Core Features**
+
+* Public **Event Registration Form** (lead→booking)
+
+  * `/register` route for clients to pick package, date, and fill questionnaire
+  * reCAPTCHA or honeypot field
+* **Staff Self-Signup Portal** with approval workflow
+
+  * Staff applies → owner/admin reviews → converts to staff account
+* **Auto-Create Booking + Client Record** when a registration is accepted
+* Confirmation toast + internal notification (future agent hook)
+
+**Why first:** closes the loop between *marketing* and *operations* while staying in-app.
+
+> **Expected Duration:** 1 payload cycle (≈ 1 Replit build)
+
+---
+
+## 💫 **Payload 2 — Sprint 6: Calendar + Scheduling View**
+
+**Goal:** Provide visual scheduling for owners & staff.
+
+**Core Features**
+
+* `/calendar` page using `react-big-calendar`
+* Monthly/weekly toggle; color by status (proposal | confirmed | paid | completed)
+* Drag to reschedule booking → updates `start_at` / `end_at`
+* Staff filter: show only assigned bookings
+* No Google OAuth yet — read/write purely local
+
+**Stretch:** add “Export to ICS” and placeholder button for “Sync with Google Calendar.”
+
+> **Expected Duration:** 1 payload cycle
+
+---
+
+## 🪩 **Payload 3 — Sprint 7: Automation & Workflow Builder**
+
+**Goal:** Introduce internal “agents” (your favorite part 😉) as rule-based automations.
+
+**Core Features**
+
+* `/automations` page (table + builder)
+* Trigger-Action pairs, e.g.
+
+  * Booking Created → Send Email (stub)
+  * Invoice Due → Reminder SMS (stub)
+* Backend cron job registry under `/server/agents/`
+* Toggle on/off per automation
+* Logs visible in “System Events” tab
+
+**Stretch:** add JSON export/import for workflows.
+
+> **Expected Duration:** 1 payload cycle
+
+---
+
+## 🧠 **Payload 4 — Sprint 8: Analytics & Reports**
+
+**Goal:** Expand dashboard into a reporting suite.
+
+**Core Features**
+
+* `/analytics` page with:
+
+  * Revenue Over Time (line chart)
+  * Booking Trends (bar chart)
+  * Staff Utilization (pie chart)
+  * Conversion Rates (proposals → bookings → paid)
+* Date-range filters
+* CSV export
+
+**Stretch:** predictive “next-month revenue” forecast using simple regression.
+
+> **Expected Duration:** 1 payload cycle
+
+---
+
+## 💎 **Payload 5 — Sprint 9: Branding, Multi-Brand & White-Label Support**
+
+**Goal:** Prepare for multi-tenant expansion + resale.
+
+**Core Features**
+
+* Branding Settings page: upload logo, choose colors, favicon, email signature
+* Apply theme dynamically per brand ID
+* Optional sub-domain routing (`clientname.empresscrm.app`)
+* Role-based admin: brand owners vs global admin
+* Reusable color scheme generator (Tailwind variables)
+
+**Stretch:** “duplicate brand” template for future white-label resellers.
+
+> **Expected Duration:** 1 payload cycle
+
+---
+
+### 🚀 **After These Five Payloads**
+
+You’ll have:
+
+* End-to-end CRM & scheduling engine
+* Built-in event registration portal
+* Automation layer for agents
+* Analytics suite
+* Brand-ready UI shell
+
+At that point, we can safely enter **Phase 2:** integrations (Square + Twilio + Mailgun) and later **Mirror Marketplace** & **AI Studio Bridge**.
+
+---
+
+Would you like me to draft **Payload 1 (Sprint 5: Event Registration & Onboarding)** into a Replit-ready builder prompt next?
+That’ll set up the client / staff registration portals and keep your current schema perfectly aligned.

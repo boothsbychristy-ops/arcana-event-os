@@ -1,0 +1,249 @@
+heck yes — here are **5 full, copy-paste Replit builder payloads** queued up and ready. They continue your current Rainbow CRM repo with zero external APIs (payments/SMS/email stay for later). Each payload includes scope, schema, routes, UI, acceptance criteria, and deliverables.
+
+---
+
+## 🧩 Payload 1 — Sprint 5: Event Registration & Onboarding
+
+**Goal:** Public client registration, staff self-signup (owner approval), and a clean lead→proposal→booking path.
+
+### Scope
+
+* Public **Client Registration** page (package/date/questions) → creates Lead + optional auto-proposal.
+* **Staff Portal**: self-apply → owner approves → becomes `staff`.
+* “Mini forms” you can later embed (we’ll also add widgets in a later sprint).
+
+### Schema (SQL, append to migrations)
+
+```sql
+create table if not exists leads (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  first_name text, last_name text, email text, phone text,
+  event_date timestamptz, package_id uuid, notes text,
+  status text not null default 'new' check (status in ('new','qualified','converted','archived')),
+  answers jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+create table if not exists staff_applications (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  first_name text, last_name text, email text, phone text,
+  experience text, portfolio_url text,
+  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  created_at timestamptz default now()
+);
+```
+
+### API
+
+* `POST /api/public/register` → create `lead` (+ optional auto-proposal if `package_id` present).
+* `POST /api/public/staff-apply` → create `staff_applications`.
+* `GET /api/leads` (owner/admin), `PATCH /api/leads/:id` (status updates, convert → client+proposal).
+* `GET /api/staff-applications`, `POST /api/staff-applications/:id/approve` → upsert to `staff` table; `.../reject`.
+
+### UI
+
+* Route `/register`: stepper (Contact → Event → Package → Extra Questions → Review). Honeypot field for spam.
+* Admin → **Leads** page: table w/ status chips, “Convert to Client+Proposal” action.
+* Admin → **Staff Applications**: approve/reject; approved shows in Staff list.
+* Toasts on submit/approve; redirect to created records.
+
+### Acceptance Criteria
+
+1. Public form submits → lead appears in admin Leads list.
+2. “Convert to Client+Proposal” creates both and links correctly.
+3. Staff apply → owner approves → shows up in Staff list.
+4. All actions show toasts and persist after reload.
+
+### Deliverables
+
+* New tables, routes above, `/register` page, Leads & Staff Applications admin pages.
+
+---
+
+## 📅 Payload 2 — Sprint 6: Calendar & Scheduling View (local)
+
+**Goal:** Visual event scheduling without external calendars.
+
+### Scope
+
+* Calendar page with month/week/day views, drag-to-move bookings, staff filter.
+
+### Packages
+
+* `react-big-calendar`, `date-fns`.
+
+### API
+
+* `GET /api/calendar?from=&to=&staff_id=` → bookings in range.
+* `PATCH /api/bookings/:id/time` → update `start_at`/`end_at`.
+
+### UI
+
+* `/calendar` route.
+* Color by status: proposal=gray, confirmed=emerald, paid=indigo, completed=violet, canceled=rose.
+* Drag to reschedule → confirmation modal → save.
+* Filter chips: “My Assignments”, staff dropdown, status filter.
+
+### Acceptance Criteria
+
+1. Calendar renders bookings with correct colors & times.
+2. Dragging a booking updates times and persists.
+3. Staff filter shows only assigned bookings.
+4. Month/week/day toggles work; URL query reflects current view (optional).
+
+### Deliverables
+
+* Calendar page, new endpoints, integration with Bookings data.
+
+---
+
+## ⚙️ Payload 3 — Sprint 7: Automations & Agent Framework (stub)
+
+**Goal:** Rule-based workflows (your “agents”) with cron + logs, no external APIs yet.
+
+### Schema
+
+```sql
+create table if not exists automations (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  is_enabled boolean default true,
+  trigger text not null, -- 'booking.created'|'invoice.dueSoon'|'proposal.accepted'|...
+  action text not null,  -- 'send_email'|'send_sms'|'create_task'|'add_note'
+  config jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+create table if not exists automation_logs (
+  id uuid primary key default gen_random_uuid(),
+  automation_id uuid references automations(id) on delete cascade,
+  run_at timestamptz default now(),
+  status text not null default 'ok', -- 'ok'|'error'
+  message text
+);
+```
+
+### Server
+
+* `/server/agents/index.ts` registry + simple dispatcher.
+* `node-cron` runner: sweep for triggers daily/hourly and simulate actions (log entries).
+* API: `GET/POST /api/automations`, `PATCH /api/automations/:id`, `GET /api/automations/logs?automation_id=...`, `POST /api/agents/run/:id` (manual run).
+
+### UI
+
+* `/automations` page:
+
+  * List automations with enable/disable.
+  * “New Automation” modal: choose Trigger & Action; config JSON (stub).
+  * Logs panel with last 20 runs.
+
+### Acceptance Criteria
+
+1. Can create/enable automation; entry appears in list.
+2. Manual run creates a log.
+3. Cron executes enabled automations and logs outcomes (stub action).
+4. Disabling prevents runs.
+
+### Deliverables
+
+* Tables, cron runner, REST endpoints, `/automations` UI with logs.
+
+---
+
+## 📊 Payload 4 — Sprint 8: Analytics & Reports
+
+**Goal:** Real reporting suite with date filters & export.
+
+### API (aggregates via Drizzle SQL)
+
+* `GET /api/analytics/summary?from=&to=` → { revenue_total, bookings_count, avg_booking_value, conversion_rate, staff_utilization_pct }
+* `GET /api/analytics/revenue-series?from=&to=&interval=month`
+* `GET /api/analytics/booking-trends?from=&to=`
+* `GET /api/analytics/staff-utilization?from=&to=`
+* `GET /api/analytics/export.csv?from=&to=` (CSV rows for invoices/bookings)
+
+### UI
+
+* `/analytics` page with:
+
+  * Revenue Over Time (line)
+  * Booking Trends (bar)
+  * Staff Utilization (pie)
+  * KPI cards (MTD/last 90 days)
+  * Date range picker; CSV export button
+
+### Acceptance Criteria
+
+1. Charts render with live data; changing date range updates all widgets.
+2. CSV downloads with the selected date range.
+3. KPIs match underlying list totals.
+4. Works on mobile (charts stack vertically).
+
+### Deliverables
+
+* Analytics endpoints + page with charts and export.
+
+---
+
+## 🪞 Payload 5 — Sprint 9: Branding, Multi-Brand, White-Label
+
+**Goal:** Per-brand theming, assets, and optional subdomain prep.
+
+### Schema
+
+```sql
+create table if not exists brands (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  subdomain text, -- nullable, for future
+  logo_url text,
+  primary_color text default '#3c0b43',
+  gradient jsonb default '["#d946ef","#fb7185","#f59e0b"]'::jsonb,
+  cta_color text default '#3c0b43',
+  is_primary boolean default false,
+  created_at timestamptz default now()
+);
+```
+
+### API
+
+* `GET/POST /api/brands` (create brand)
+* `PATCH /api/brands/:id` (colors, name, is_primary)
+* `POST /api/brands/:id/logo` (upload; reuse multer)
+* `GET /api/theme` → returns active brand’s theme (for runtime theming)
+
+### UI
+
+* `/settings/branding`:
+
+  * Create/Edit brands.
+  * Pick primary brand.
+  * Upload logo.
+  * Live preview panel (navbar/button/card sample).
+* Client app loads theme from `/api/theme` on startup; applies CSS vars:
+
+  * `--brand-primary`, `--brand-cta`, `--grad-start/mid/end`
+
+### Acceptance Criteria
+
+1. Multiple brands can be created; one marked primary.
+2. Theme endpoint returns selected palette; UI updates without rebuild (CSS vars).
+3. Logo shows in navbar; favicon optional (url field).
+4. Future-ready: subdomain stored but unused.
+
+### Deliverables
+
+* `brands` table & CRUD endpoints, theme endpoint, theming via CSS variables, branding settings UI.
+
+---
+
+### 🔒 For all 5 payloads
+
+**Do NOT include:** Stripe/Square payments, Twilio, Mailgun, Google OAuth.
+**Do:** keep JWT auth/guards, rainbow aesthetic, shadcn UI, and existing DB intact.
+
+---
+
+If you want, I can also output these as **five separate messages** for easy pasting — but the above is ready to drop into Replit one by one (start with Payload 1).

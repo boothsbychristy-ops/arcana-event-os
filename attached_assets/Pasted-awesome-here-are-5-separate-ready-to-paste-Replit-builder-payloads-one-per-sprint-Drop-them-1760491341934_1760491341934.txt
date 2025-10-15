@@ -1,0 +1,248 @@
+awesome — here are **5 separate, ready-to-paste Replit builder payloads**, one per sprint. Drop them in one at a time (start with Payload 1). No external APIs, payments, or OAuth; all feature-first.
+
+---
+
+# Payload 1 — Sprint 5: Event Registration & Onboarding
+
+**Goal:** Public client registration, staff self-signup (owner approval), and a clean lead→proposal→booking path.
+
+## Scope
+
+* Public **Client Registration** page (`/register`) → creates Lead (and optional auto-proposal).
+* **Staff Portal** (`/staff-apply`) → application → owner approves → becomes staff.
+* Admin pages for **Leads** and **Staff Applications**.
+
+## Schema (append to migrations)
+
+```sql
+create table if not exists leads (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  first_name text, last_name text, email text, phone text,
+  event_date timestamptz, package_id uuid, notes text,
+  status text not null default 'new' check (status in ('new','qualified','converted','archived')),
+  answers jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+create table if not exists staff_applications (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  first_name text, last_name text, email text, phone text,
+  experience text, portfolio_url text,
+  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  created_at timestamptz default now()
+);
+```
+
+## API
+
+* `POST /api/public/register` → create lead (if `package_id`, set flag to generate proposal later).
+* `POST /api/public/staff-apply` → create staff_application.
+* `GET /api/leads` (owner/admin), `PATCH /api/leads/:id` (status; `converted` creates client + proposal).
+* `GET /api/staff-applications`, `POST /api/staff-applications/:id/approve` (upsert to `staff`), `POST .../:id/reject`.
+
+## UI
+
+* `/register` stepper (Contact → Event → Package → Questions → Review), honeypot field, success toast.
+* Admin → **Leads** page (status chips; “Convert to Client + Proposal”).
+* Admin → **Staff Applications** (approve/reject); approved appears in Staff list.
+
+## Acceptance Criteria
+
+1. Public form makes a Lead visible in Admin.
+2. Convert Lead → creates Client + Proposal (linked).
+3. Staff apply → approve → shows in Staff and assignable to bookings.
+4. All actions show toasts and persist after reload.
+
+## Deliverables
+
+* New tables, routes, `/register`, Leads & Staff Applications admin pages.
+
+---
+
+# Payload 2 — Sprint 6: Calendar & Scheduling (local only)
+
+**Goal:** Visual scheduling without Google OAuth.
+
+## Scope
+
+* `/calendar` view with month/week/day, drag-to-move bookings, staff/status filter.
+
+## Packages
+
+* `react-big-calendar`, `date-fns`.
+
+## API
+
+* `GET /api/calendar?from=&to=&staff_id=&status=` → bookings in range.
+* `PATCH /api/bookings/:id/time` → update `start_at`/`end_at`.
+
+## UI
+
+* Color by status: proposal=gray, confirmed=emerald, paid=indigo, completed=violet, canceled=rose.
+* Drag event → confirm modal → save via PATCH.
+* Filters: “My Assignments”, staff dropdown, status chips.
+
+## Acceptance Criteria
+
+1. Calendar renders real bookings, correct colors/times.
+2. Dragging changes dates and persists.
+3. Filters work (staff/status).
+4. Month/week/day switchers function; optional URL query sync.
+
+## Deliverables
+
+* Calendar page, endpoints, integration with Bookings.
+
+---
+
+# Payload 3 — Sprint 7: Automations & Agent Framework (stub)
+
+**Goal:** Rule-based workflows + cron runner + logs (no external services yet).
+
+## Schema
+
+```sql
+create table if not exists automations (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  is_enabled boolean default true,
+  trigger text not null, -- 'booking.created'|'invoice.dueSoon'|'proposal.accepted'|...
+  action text not null,  -- 'send_email'|'send_sms'|'create_task'|'add_note'
+  config jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+create table if not exists automation_logs (
+  id uuid primary key default gen_random_uuid(),
+  automation_id uuid references automations(id) on delete cascade,
+  run_at timestamptz default now(),
+  status text not null default 'ok', -- 'ok'|'error'
+  message text
+);
+```
+
+## Server
+
+* `/server/agents/index.ts`: registry + dispatcher.
+* Add `node-cron` to run hourly/daily; simulate actions (write `automation_logs`).
+* API:
+
+  * `GET/POST /api/automations`
+  * `PATCH /api/automations/:id` (enable/disable/update)
+  * `GET /api/automations/logs?automation_id=...`
+  * `POST /api/agents/run/:id` (manual run for testing)
+
+## UI
+
+* `/automations` page:
+
+  * List + enable/disable toggles.
+  * “New Automation” modal (Trigger, Action, JSON config).
+  * Logs panel (last 20 runs) with status pill.
+
+## Acceptance Criteria
+
+1. Create & enable an automation.
+2. Manual run creates a log.
+3. Cron executes enabled automations and logs “ok”.
+4. Disabling prevents future runs.
+
+## Deliverables
+
+* Tables, cron runner, endpoints, UI with logs.
+
+---
+
+# Payload 4 — Sprint 8: Analytics & Reports
+
+**Goal:** Real analytics with date filters & CSV export.
+
+## API (Drizzle aggregates)
+
+* `GET /api/analytics/summary?from=&to=` → `{ revenue_total, bookings_count, avg_booking_value, conversion_rate, staff_utilization_pct }`
+* `GET /api/analytics/revenue-series?from=&to=&interval=month`
+* `GET /api/analytics/booking-trends?from=&to=`
+* `GET /api/analytics/staff-utilization?from=&to=`
+* `GET /api/analytics/export.csv?from=&to=` (CSV of invoices/bookings)
+
+## UI
+
+* `/analytics` page:
+
+  * KPI cards (MTD / last 90 days)
+  * Revenue Over Time (line), Booking Trends (bar), Staff Utilization (pie)
+  * Date range picker
+  * CSV export button
+
+## Acceptance Criteria
+
+1. Charts render and update with date range.
+2. CSV downloads scoped to selected dates.
+3. KPIs match list totals.
+4. Mobile layout stacks cleanly.
+
+## Deliverables
+
+* Endpoints + charts page + export.
+
+---
+
+# Payload 5 — Sprint 9: Branding, Multi-Brand, White-Label
+
+**Goal:** Per-brand theming and assets; future subdomain support.
+
+## Schema
+
+```sql
+create table if not exists brands (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  subdomain text,
+  logo_url text,
+  primary_color text default '#3c0b43',
+  gradient jsonb default '["#d946ef","#fb7185","#f59e0b"]'::jsonb,
+  cta_color text default '#3c0b43',
+  is_primary boolean default false,
+  created_at timestamptz default now()
+);
+```
+
+## API
+
+* `GET/POST /api/brands` (create/list)
+* `PATCH /api/brands/:id` (update colors/name/is_primary)
+* `POST /api/brands/:id/logo` (multer upload)
+* `GET /api/theme` → active brand theme (CSS vars: `--brand-primary`, `--cta`, `--grad-start/mid/end`)
+
+## UI
+
+* `/settings/branding`:
+
+  * Manage brands, mark primary.
+  * Upload logo.
+  * Live preview (navbar/button/card sample).
+* App boot: fetch `/api/theme` → apply CSS variables without rebuild.
+
+## Acceptance Criteria
+
+1. Multiple brands can exist; one is primary.
+2. Theme endpoint drives runtime theming across app.
+3. Logo shows in navbar; colors update UI live.
+4. Subdomain stored (not yet used).
+
+## Deliverables
+
+* `brands` table & CRUD, theme endpoint, CSS-var theming, branding settings UI.
+
+---
+
+### Global Notes (for all payloads)
+
+* Keep existing JWT auth, roles, and rainbow aesthetic.
+* Do **not** add Stripe/Square/Twilio/Mailgun/Google OAuth yet.
+* Use toasts for success/error; maintain skeletons & empty states.
+* Follow your current code structure (Express routes + React pages + TanStack Query).
+
+When you’re ready, paste **Payload 1** into Replit and kick it off. I can tailor the next payload if anything unexpected pops up during the build.
