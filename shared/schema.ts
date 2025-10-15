@@ -374,6 +374,31 @@ export const staffApplications = pgTable("staff_applications", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Automations for agent-based workflow automation
+export const automations = pgTable("automations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  triggerEvent: text("trigger_event").notNull(), // 'task.created', 'task.status_changed', 'task.due_soon'
+  condition: jsonb("condition").default({}),
+  action: text("action").notNull(), // 'send_notification', 'update_status', 'create_subtasks'
+  actionConfig: jsonb("action_config").default({}),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  runScope: text("run_scope").notNull().default("immediate"), // 'immediate' | 'scheduled'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Automation execution logs
+export const automationLogs = pgTable("automation_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  automationId: varchar("automation_id").references(() => automations.id, { onDelete: "cascade" }).notNull(),
+  runAt: timestamp("run_at").notNull().defaultNow(),
+  status: text("status").notNull().default("ok"), // 'ok' | 'error' | 'skipped'
+  message: text("message"),
+  context: jsonb("context").default({}),
+});
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
@@ -407,6 +432,8 @@ export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, creat
   eventDate: z.string().nullable().optional().transform(val => val ? new Date(val) : null),
 });
 export const insertStaffApplicationSchema = createInsertSchema(staffApplications).omit({ id: true, createdAt: true });
+export const insertAutomationSchema = createInsertSchema(automations).omit({ id: true, createdAt: true });
+export const insertAutomationLogSchema = createInsertSchema(automationLogs).omit({ id: true, runAt: true });
 
 // TypeScript types
 export type User = typeof users.$inferSelect;
@@ -498,6 +525,12 @@ export type InsertLead = z.infer<typeof insertLeadSchema>;
 
 export type StaffApplication = typeof staffApplications.$inferSelect;
 export type InsertStaffApplication = z.infer<typeof insertStaffApplicationSchema>;
+
+export type Automation = typeof automations.$inferSelect;
+export type InsertAutomation = z.infer<typeof insertAutomationSchema>;
+
+export type AutomationLog = typeof automationLogs.$inferSelect;
+export type InsertAutomationLog = z.infer<typeof insertAutomationLogSchema>;
 
 // Auth schemas
 export const loginSchema = z.object({

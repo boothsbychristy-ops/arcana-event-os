@@ -1,0 +1,249 @@
+Perfect — here’s your **ready-to-paste Replit Architect Payload (Sprint 8: Automations & Agents Framework)**.
+This adds your first internal “Empress Agents” engine for rule-based automations.
+It gives Rainbow CRM the power to **listen, decide, and act** automatically — the first layer of your multi-agent logic.
+
+---
+
+## 🧩 **Payload — Rainbow CRM: Automations & Agents Framework**
+
+````
+Create a new Sprint called "Automations & Agents (Sprint 8)" for Project Rainbow CRM.
+
+🎯 GOAL
+Implement a foundational Automations Framework:
+- Users can create automation rules (“When X happens → Do Y”)
+- Agents execute actions when conditions are met
+- Hourly background job runner for time-based triggers
+- UI to view, enable/disable, and test automations
+This establishes the Empress OS Agent architecture for Rainbow CRM.
+
+---
+
+🧠 DATABASE MIGRATIONS
+Add the following tables:
+
+```sql
+create table if not exists automations (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  description text,
+  trigger_event text not null,        -- e.g. 'task.status_changed', 'task.due_soon'
+  condition jsonb default '{}'::jsonb, -- key/value pairs for filter logic
+  action text not null,                -- e.g. 'send_notification', 'update_status', 'create_subtasks'
+  action_config jsonb default '{}'::jsonb,
+  is_enabled boolean default true,
+  run_scope text default 'immediate',  -- 'immediate' | 'scheduled'
+  created_at timestamptz default now()
+);
+
+create table if not exists automation_logs (
+  id uuid primary key default gen_random_uuid(),
+  automation_id uuid references automations(id) on delete cascade,
+  run_at timestamptz default now(),
+  status text not null default 'ok',  -- 'ok' | 'error' | 'skipped'
+  message text,
+  context jsonb default '{}'::jsonb
+);
+````
+
+---
+
+⚙️ SERVER – AGENT REGISTRY & ENGINE
+Create folder `/server/agents/` with:
+
+**1. registry.js**
+
+```js
+export const AgentRegistry = {
+  send_notification: async (payload, config, db, user) => {
+    // later integrate Twilio/Mailgun
+    console.log("📨 Notifying:", payload?.message || "No message");
+    return { ok: true, msg: "notification simulated" };
+  },
+  update_status: async (payload, config, db) => {
+    const { taskId, newStatus } = payload || {};
+    if (!taskId) return { ok: false, msg: "no taskId" };
+    await db.query("update tasks set status=$1, updated_at=now() where id=$2", [newStatus, taskId]);
+    return { ok: true, msg: `task ${taskId} updated to ${newStatus}` };
+  },
+  create_subtasks: async (payload, config, db) => {
+    const { taskId, subtasks=[] } = payload || {};
+    for (const title of subtasks) {
+      await db.query("insert into subtasks (task_id, title) values ($1,$2)", [taskId, title]);
+    }
+    return { ok: true, msg: `${subtasks.length} subtasks created` };
+  }
+};
+```
+
+**2. engine.js**
+
+```js
+import { AgentRegistry } from "./registry.js";
+import db from "../db.js";
+
+export async function runAutomation(automation, payload = {}, user = null) {
+  const { action, action_config } = automation;
+  const agent = AgentRegistry[action];
+  if (!agent) throw new Error(`Unknown action: ${action}`);
+
+  try {
+    const result = await agent(payload, action_config, db, user);
+    await db.query(
+      "insert into automation_logs (automation_id, status, message, context) values ($1,$2,$3,$4)",
+      [automation.id, "ok", result.msg, JSON.stringify(payload)]
+    );
+    return result;
+  } catch (err) {
+    await db.query(
+      "insert into automation_logs (automation_id, status, message, context) values ($1,$2,$3,$4)",
+      [automation.id, "error", err.message, JSON.stringify(payload)]
+    );
+    console.error("⚠️ Automation error:", err);
+    return { ok: false, msg: err.message };
+  }
+}
+```
+
+**3. scheduler.js**
+
+```js
+import db from "../db.js";
+import { runAutomation } from "./engine.js";
+
+export async function runScheduledAutomations() {
+  const { rows } = await db.query("select * from automations where is_enabled=true and run_scope='scheduled'");
+  for (const a of rows) {
+    if (a.trigger_event === "task.due_soon") {
+      const { rows: tasks } = await db.query(`
+        select id,title,due_at from tasks
+        where due_at < now() + interval '24 hours' and status != 'done'
+      `);
+      for (const t of tasks) {
+        await runAutomation(a, { taskId: t.id, message: `${t.title} is due soon!` });
+      }
+    }
+  }
+}
+```
+
+Add a cron job in `server/index.js`:
+
+```js
+import cron from "node-cron";
+import { runScheduledAutomations } from "./agents/scheduler.js";
+cron.schedule("0 * * * *", runScheduledAutomations); // every hour
+```
+
+---
+
+🚦 SERVER – ROUTES (new `/server/routes/automations.js`)
+Endpoints:
+
+* `GET /api/automations` → list automations for owner
+* `POST /api/automations` → create `{ name, description, trigger_event, condition, action, action_config, run_scope }`
+* `PATCH /api/automations/:id` → edit fields
+* `PATCH /api/automations/:id/toggle` → enable/disable
+* `DELETE /api/automations/:id`
+* `GET /api/automations/logs` → list latest 50 logs
+* `POST /api/automations/:id/run` → manual trigger for testing (calls `runAutomation()`)
+
+All routes use JWT middleware; validate `owner_id`.
+
+---
+
+🎨 CLIENT – ADMIN PAGE
+
+**/client/src/pages/AutomationsPage.jsx**
+
+* Table view of existing automations:
+
+  * Columns: Name, Trigger, Action, Status (enabled/disabled), Last Run, Edit/Delete
+* “+ New Automation” button → opens modal:
+
+  * Fields:
+
+    * Name
+    * Trigger (dropdown: `task.created`, `task.status_changed`, `task.due_soon`)
+    * Condition (JSON editor or key/value pairs)
+    * Action (dropdown: `send_notification`, `update_status`, `create_subtasks`)
+    * Action Config (JSON input)
+    * Schedule: Immediate / Scheduled
+  * Save → POST `/api/automations`
+* Toggle switch for is_enabled (PATCH toggle)
+* Logs drawer:
+
+  * Show last 20 logs per automation (status, message, time)
+* Use shadcn Table + Modal + Switch components, styled rainbow gradient on primary buttons.
+
+---
+
+🧠 TRIGGER HOOKS
+In `/server/routes/tasks.js`, when relevant events occur, call:
+
+```js
+import db from "../db.js";
+import { runAutomation } from "../agents/engine.js";
+
+async function triggerEvent(event, payload, ownerId) {
+  const { rows } = await db.query(
+    "select * from automations where owner_id=$1 and is_enabled=true and trigger_event=$2",
+    [ownerId, event]
+  );
+  for (const a of rows) await runAutomation(a, payload);
+}
+```
+
+Use this in:
+
+* After task creation → `triggerEvent('task.created', {taskId: newId, title, ownerId})`
+* After status change → `triggerEvent('task.status_changed', {taskId, newStatus})`
+* (Scheduled ones handled by cron)
+
+---
+
+✅ ACCEPTANCE CRITERIA
+
+1. User can create, edit, enable/disable automations via UI.
+2. Triggered events (task created/status change) run corresponding actions immediately.
+3. “Due soon” automation runs hourly and logs events correctly.
+4. Manual “Run Now” works from UI.
+5. Automation logs viewable in admin dashboard.
+6. No duplicate or runaway triggers; actions idempotent per event.
+
+---
+
+🛡️ SECURITY
+
+* All automation routes scoped by `owner_id`.
+* Prevent arbitrary SQL execution via action_config sanitization.
+* Return structured JSON logs; mask sensitive values before saving.
+
+---
+
+📄 DEV CHECKLIST
+
+* Run migration and verify tables.
+* Add new routes + mount `/api/automations`.
+* Add AutomationsPage to sidebar for owner/admin only.
+* Test creating a “task.due_soon → send_notification” automation and confirm logs.
+* Verify status-change triggers work from Kanban + Calendar.
+
+---
+
+📜 LICENSE NOTE
+All new code is internal; `node-cron` (MIT) and your existing libraries are safe for commercial use.
+
+Report completion as:
+“Automations & Agents Framework ready — user-defined triggers, hourly runner, and activity logs operational.”
+
+```
+
+---
+
+Once Replit reports that Sprint 8 is complete ✅,  
+we’ll proceed to **Sprint 9 (Analytics & Reports)** — turning all your data into revenue charts, booking trends, and staff utilization dashboards.  
+
+Would you like me to queue up that **Analytics & Reports payload** next so you can paste it the moment this one passes testing?
+```
