@@ -1,6 +1,8 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import cron from "node-cron";
+import { runScheduledAutomations } from "./agents/scheduler";
 
 const app = express();
 app.use(express.json());
@@ -67,5 +69,13 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+  });
+
+  // Schedule hourly automation runs
+  cron.schedule("0 * * * *", () => {
+    log("🤖 Running scheduled automations...");
+    runScheduledAutomations().catch(err => {
+      console.error("Error running scheduled automations:", err);
+    });
   });
 })();
