@@ -32,6 +32,8 @@ import type {
   Deliverable, InsertDeliverable,
   Lead, InsertLead,
   StaffApplication, InsertStaffApplication,
+  Automation, InsertAutomation,
+  AutomationLog, InsertAutomationLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -209,6 +211,17 @@ export interface IStorage {
   updateStaffApplication(id: string, status: string): Promise<StaffApplication | undefined>;
   approveStaffApplication(id: string): Promise<{ application: StaffApplication; staff: Staff; user: User; temporaryPassword: string }>;
   rejectStaffApplication(id: string): Promise<StaffApplication | undefined>;
+  
+  // Automations
+  getAllAutomations(ownerId: string): Promise<Automation[]>;
+  getAutomation(id: string): Promise<Automation | undefined>;
+  createAutomation(automation: InsertAutomation): Promise<Automation>;
+  updateAutomation(id: string, automation: Partial<InsertAutomation>): Promise<Automation | undefined>;
+  toggleAutomation(id: string): Promise<Automation | undefined>;
+  deleteAutomation(id: string): Promise<boolean>;
+  
+  // Automation Logs
+  getAutomationLogs(automationId?: string, limit?: number): Promise<AutomationLog[]>;
   
   // Dashboard Stats
   getDashboardStats(): Promise<{
@@ -1051,6 +1064,62 @@ export class DatabaseStorage implements IStorage {
       month,
       revenue
     }));
+  }
+
+  // Automations
+  async getAllAutomations(ownerId: string): Promise<Automation[]> {
+    return db.select().from(schema.automations).where(eq(schema.automations.ownerId, ownerId));
+  }
+
+  async getAutomation(id: string): Promise<Automation | undefined> {
+    const result = await db.select().from(schema.automations).where(eq(schema.automations.id, id));
+    return result[0];
+  }
+
+  async createAutomation(automation: InsertAutomation): Promise<Automation> {
+    const result = await db.insert(schema.automations).values(automation).returning();
+    return result[0];
+  }
+
+  async updateAutomation(id: string, automation: Partial<InsertAutomation>): Promise<Automation | undefined> {
+    const result = await db.update(schema.automations)
+      .set(automation)
+      .where(eq(schema.automations.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async toggleAutomation(id: string): Promise<Automation | undefined> {
+    const current = await this.getAutomation(id);
+    if (!current) return undefined;
+    
+    const result = await db.update(schema.automations)
+      .set({ isEnabled: !current.isEnabled })
+      .where(eq(schema.automations.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteAutomation(id: string): Promise<boolean> {
+    const result = await db.delete(schema.automations)
+      .where(eq(schema.automations.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Automation Logs
+  async getAutomationLogs(automationId?: string, limit: number = 50): Promise<AutomationLog[]> {
+    if (automationId) {
+      return db.select()
+        .from(schema.automationLogs)
+        .where(eq(schema.automationLogs.automationId, automationId))
+        .orderBy(desc(schema.automationLogs.runAt))
+        .limit(limit);
+    }
+    return db.select()
+      .from(schema.automationLogs)
+      .orderBy(desc(schema.automationLogs.runAt))
+      .limit(limit);
   }
 }
 

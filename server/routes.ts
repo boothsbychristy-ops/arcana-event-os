@@ -46,6 +46,36 @@ import {
   type AuthRequest,
 } from "./auth";
 
+// Helper function to trigger automations
+async function triggerAutomationEvent(
+  event: string,
+  payload: any,
+  ownerId: string
+) {
+  try {
+    const { runAutomation } = await import("./agents/engine");
+    const { automations } = await import("@shared/schema");
+    const { eq, and } = await import("drizzle-orm");
+    
+    const matchingAutomations = await db.select().from(automations).where(
+      and(
+        eq(automations.ownerId, ownerId),
+        eq(automations.isEnabled, true),
+        eq(automations.triggerEvent, event),
+        eq(automations.runScope, "immediate")
+      )
+    );
+
+    for (const automation of matchingAutomations) {
+      runAutomation(automation, payload).catch((err) => {
+        console.error(`Error running automation ${automation.id}:`, err);
+      });
+    }
+  } catch (error) {
+    console.error("Error triggering automation event:", error);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   
   // Authentication
@@ -1000,6 +1030,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const data = insertTaskSchema.parse(req.body);
       const task = await storage.createTask({ ...data, ownerId });
+
+      // Trigger task.created automation
+      triggerAutomationEvent('task.created', {
+        taskId: task.id,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+      }, ownerId);
+
       res.json(task);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1023,11 +1062,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/tasks/:id", async (req, res) => {
     try {
+      const oldTask = await storage.getTask(req.params.id);
       const data = insertTaskSchema.partial().parse(req.body);
       const task = await storage.updateTask(req.params.id, data);
       if (!task) {
         return res.status(404).json({ error: "Task not found" });
       }
+
+      // Trigger task.status_changed automation if status changed
+      if (oldTask && data.status && oldTask.status !== data.status) {
+        triggerAutomationEvent('task.status_changed', {
+          taskId: task.id,
+          title: task.title,
+          newStatus: task.status,
+          oldStatus: oldTask.status,
+        }, task.ownerId);
+      }
+
       res.json(task);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1521,6 +1572,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(application);
     } catch (error) {
       res.status(500).json({ error: "Failed to reject application" });
+    }
+  });
+
+  // Automations routes
+  app.get("/api/automations", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const automations = await storage.getAllAutomations(req.user!.id);
+      res.json(automations);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch automations" });
+    }
+  });
+
+  app.post("/api/automations", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const automation = await storage.createAutomation({
+        ...req.body,
+        ownerId: req.user!.id,
+      });
+      res.json(automation);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create automation" });
+    }
+  });
+
+  app.patch("/api/automations/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const automation = await storage.updateAutomation(req.params.id, req.body);
+      if (!automation) {
+        return res.status(404).json({ error: "Automation not found" });
+      }
+      res.json(automation);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update automation" });
+    }
+  });
+
+  app.patch("/api/automations/:id/toggle", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const automation = await storage.toggleAutomation(req.params.id);
+      if (!automation) {
+        return res.status(404).json({ error: "Automation not found" });
+      }
+      res.json(automation);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to toggle automation" });
+    }
+  });
+
+  app.delete("/api/automations/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const success = await storage.deleteAutomation(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Automation not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete automation" });
+    }
+  });
+
+  app.get("/api/automations/logs", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const automationId = req.query.automationId as string | undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const logs = await storage.getAutomationLogs(automationId, limit);
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch automation logs" });
+    }
+  });
+
+  app.post("/api/automations/:id/run", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const automation = await storage.getAutomation(req.params.id);
+      if (!automation) {
+        return res.status(404).json({ error: "Automation not found" });
+      }
+
+      const { runAutomation } = await import("./agents/engine");
+      const result = await runAutomation(automation, req.body.payload || {}, req.user!);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to run automation" });
     }
   });
 
