@@ -1,0 +1,85 @@
+🔥 You’re now perfectly positioned for **Sprint 9 — Analytics & Reports**,
+the data-visualization core of Rainbow CRM.
+
+This sprint turns all the work you’ve done (bookings, tasks, automations, payments, staff activity) into **insight dashboards** for owners and admins.
+
+Here’s what it covers:
+
+---
+
+## 🧩 **Next Payload — Rainbow CRM: Analytics & Reports (Sprint 9)**
+
+**Goal:**
+Add live metrics, charts, and exports for business visibility.
+Owners can instantly see revenue, bookings, and team performance trends inside an “Analytics” tab.
+
+---
+
+### 🧱 Features
+
+| Module           | What it does                                                                                                |
+| :--------------- | :---------------------------------------------------------------------------------------------------------- |
+| **Summary KPIs** | MTD / YTD Revenue, Total Bookings, Conversion Rate, Avg Booking Value, Task Completion %, Staff Utilization |
+| **Charts**       | Line: Revenue vs Time  •  Bar: Bookings per Staff  •  Pie: Status Distribution                              |
+| **Filters**      | Date Range  •  Staff  •  Client  •  Board/Status                                                            |
+| **CSV Exports**  | `Export Revenue.csv`, `Export Bookings.csv`, `Export Tasks.csv`                                             |
+| **Permissions**  | Admin/Owner only; staff see personal summaries only                                                         |
+
+---
+
+### ⚙️ Server
+
+Add `/server/routes/analytics.js`:
+
+* `GET /api/analytics/summary?from=&to=`
+  → `{ revenue, bookings, avgValue, conversionRate, taskCompletion, staffUtilization }`
+* `GET /api/analytics/revenue-series?interval=month`
+  → `[{ label:"Oct", value:12345 }, …]`
+* `GET /api/analytics/staff-performance?from=&to=`
+  → bookings count, tasks completed per staff
+* `GET /api/analytics/export.csv?type=revenue|bookings|tasks`
+
+All queries scoped by `owner_id` and respect user role.
+
+Use PostgreSQL aggregates + date trunc for speed.
+
+---
+
+### 📊 Client
+
+Create `/client/src/pages/AnalyticsPage.jsx`:
+
+* Header = date-range picker + filters
+* KPI cards using shadcn Cards (`Revenue`, `Bookings`, `Avg Value`, `Task Completion %`, `Utilization %`)
+* Recharts integration:
+
+  ```bash
+  npm install recharts
+  ```
+
+  * `<LineChart>` for Revenue series
+  * `<BarChart>` for Bookings by Staff
+  * `<PieChart>` for Status breakdown
+* “Export CSV” button → downloads from `/api/analytics/export.csv`
+* Styled rainbow gradient header & dark-mode compatible cards.
+
+---
+
+### ✅ Acceptance Criteria
+
+1. Analytics tab visible only to owner/admin.
+2. KPIs update immediately when date range changes.
+3. Charts render accurately from API data.
+4. Exports download valid CSV files.
+5. Staff role sees personal metrics only.
+6. All queries filter by `owner_id` for tenant security.
+
+---
+
+### 📜 License Note
+
+Recharts + date-fns = MIT licensed → safe for closed-source use.
+
+---
+
+Would you like me to generate the **ready-to-paste Replit Builder Prompt** (the full implementation instructions like previous payloads) so you can drop it in and start Sprint 9 immediately?

@@ -223,6 +223,19 @@ export interface IStorage {
   // Automation Logs
   getAutomationLogs(automationId?: string, limit?: number): Promise<AutomationLog[]>;
   
+  // Analytics
+  getAnalyticsSummary(from: Date, to: Date, ownerId: string, staffId?: string): Promise<{
+    revenue: number;
+    bookings: number;
+    avgBookingValue: number;
+    conversionRate: number;
+    taskCompletion: number;
+    staffUtilization: number;
+  }>;
+  getRevenueSeries(interval: 'day' | 'week' | 'month', from: Date, to: Date, ownerId: string): Promise<Array<{ label: string; value: number }>>;
+  getStaffPerformance(from: Date, to: Date, ownerId: string): Promise<Array<{ staffId: string; staffName: string; bookingsCount: number; tasksCompleted: number }>>;
+  getStatusDistribution(from: Date, to: Date, ownerId: string): Promise<Array<{ status: string; count: number }>>;
+  
   // Dashboard Stats
   getDashboardStats(): Promise<{
     totalRevenue: number;
@@ -1120,6 +1133,181 @@ export class DatabaseStorage implements IStorage {
       .from(schema.automationLogs)
       .orderBy(desc(schema.automationLogs.runAt))
       .limit(limit);
+  }
+
+  // Analytics
+  async getAnalyticsSummary(from: Date, to: Date, ownerId: string, staffId?: string): Promise<{
+    revenue: number;
+    bookings: number;
+    avgBookingValue: number;
+    conversionRate: number;
+    taskCompletion: number;
+    staffUtilization: number;
+  }> {
+    // Get bookings in date range
+    const bookingsQuery = db.select()
+      .from(schema.bookings)
+      .where(
+        and(
+          eq(schema.bookings.ownerId, ownerId),
+          gte(schema.bookings.eventDate, from),
+          lte(schema.bookings.eventDate, to)
+        )
+      );
+    
+    const bookings = await bookingsQuery;
+    const bookingCount = bookings.length;
+
+    // Calculate revenue from bookings
+    const revenue = bookings.reduce((sum, booking) => sum + (booking.totalPrice || 0), 0);
+    const avgBookingValue = bookingCount > 0 ? revenue / bookingCount : 0;
+
+    // Get leads in date range for conversion rate
+    const leads = await db.select()
+      .from(schema.leads)
+      .where(
+        and(
+          eq(schema.leads.ownerId, ownerId),
+          gte(schema.leads.createdAt, from),
+          lte(schema.leads.createdAt, to)
+        )
+      );
+    
+    const conversionRate = leads.length > 0 ? (bookingCount / leads.length) * 100 : 0;
+
+    // Get tasks in date range for completion rate
+    const tasks = await db.select()
+      .from(schema.tasks)
+      .where(
+        and(
+          eq(schema.tasks.ownerId, ownerId),
+          gte(schema.tasks.createdAt, from),
+          lte(schema.tasks.createdAt, to)
+        )
+      );
+    
+    const completedTasks = tasks.filter(t => t.status === 'done' || t.status === 'completed').length;
+    const taskCompletion = tasks.length > 0 ? (completedTasks / tasks.length) * 100 : 0;
+
+    // Get staff utilization
+    const staffAssignments = await db.select()
+      .from(schema.bookingStaff)
+      .innerJoin(schema.bookings, eq(schema.bookingStaff.bookingId, schema.bookings.id))
+      .where(
+        and(
+          eq(schema.bookings.ownerId, ownerId),
+          gte(schema.bookings.eventDate, from),
+          lte(schema.bookings.eventDate, to)
+        )
+      );
+    
+    const allStaff = await db.select().from(schema.staff).where(eq(schema.staff.ownerId, ownerId));
+    const staffUtilization = allStaff.length > 0 ? (staffAssignments.length / allStaff.length) * 100 : 0;
+
+    return {
+      revenue,
+      bookings: bookingCount,
+      avgBookingValue,
+      conversionRate,
+      taskCompletion,
+      staffUtilization,
+    };
+  }
+
+  async getRevenueSeries(interval: 'day' | 'week' | 'month', from: Date, to: Date, ownerId: string): Promise<Array<{ label: string; value: number }>> {
+    const bookings = await db.select()
+      .from(schema.bookings)
+      .where(
+        and(
+          eq(schema.bookings.ownerId, ownerId),
+          gte(schema.bookings.eventDate, from),
+          lte(schema.bookings.eventDate, to)
+        )
+      )
+      .orderBy(schema.bookings.eventDate);
+
+    // Group by interval
+    const grouped: Record<string, number> = {};
+    
+    bookings.forEach(booking => {
+      if (!booking.eventDate) return;
+      
+      const date = new Date(booking.eventDate);
+      let key: string;
+      
+      if (interval === 'month') {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      } else if (interval === 'week') {
+        const weekNum = Math.floor((date.getDate() - 1) / 7) + 1;
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-W${weekNum}`;
+      } else {
+        key = date.toISOString().split('T')[0];
+      }
+      
+      grouped[key] = (grouped[key] || 0) + (booking.totalPrice || 0);
+    });
+
+    return Object.entries(grouped).map(([label, value]) => ({ label, value }));
+  }
+
+  async getStaffPerformance(from: Date, to: Date, ownerId: string): Promise<Array<{ staffId: string; staffName: string; bookingsCount: number; tasksCompleted: number }>> {
+    const staff = await db.select().from(schema.staff).where(eq(schema.staff.ownerId, ownerId));
+    
+    const results = await Promise.all(staff.map(async (staffMember) => {
+      // Count bookings
+      const bookings = await db.select()
+        .from(schema.bookingStaff)
+        .innerJoin(schema.bookings, eq(schema.bookingStaff.bookingId, schema.bookings.id))
+        .where(
+          and(
+            eq(schema.bookingStaff.staffId, staffMember.id),
+            gte(schema.bookings.eventDate, from),
+            lte(schema.bookings.eventDate, to)
+          )
+        );
+
+      // Count completed tasks
+      const tasks = await db.select()
+        .from(schema.tasks)
+        .where(
+          and(
+            eq(schema.tasks.ownerId, ownerId),
+            eq(schema.tasks.assignedTo, staffMember.userId),
+            or(eq(schema.tasks.status, 'done'), eq(schema.tasks.status, 'completed')),
+            gte(schema.tasks.createdAt, from),
+            lte(schema.tasks.createdAt, to)
+          )
+        );
+
+      return {
+        staffId: staffMember.id,
+        staffName: staffMember.name,
+        bookingsCount: bookings.length,
+        tasksCompleted: tasks.length,
+      };
+    }));
+
+    return results;
+  }
+
+  async getStatusDistribution(from: Date, to: Date, ownerId: string): Promise<Array<{ status: string; count: number }>> {
+    const tasks = await db.select()
+      .from(schema.tasks)
+      .where(
+        and(
+          eq(schema.tasks.ownerId, ownerId),
+          gte(schema.tasks.createdAt, from),
+          lte(schema.tasks.createdAt, to)
+        )
+      );
+
+    const distribution: Record<string, number> = {};
+    tasks.forEach(task => {
+      const status = task.status || 'unknown';
+      distribution[status] = (distribution[status] || 0) + 1;
+    });
+
+    return Object.entries(distribution).map(([status, count]) => ({ status, count }));
   }
 }
 
