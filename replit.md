@@ -176,3 +176,44 @@ Preferred communication style: Simple, everyday language.
 - Separation of immediate triggers (event-based) and scheduled triggers (cron-based).
 - Comprehensive logging system tracks all automation executions with success/failure status and error details.
 - Multi-tenant support with owner-based automation isolation.
+
+### Analytics & Reports System (Sprint 9 - October 2025)
+
+**Backend Implementation:**
+- Added analytics storage methods to `server/storage.ts` for KPI aggregation and time-series data.
+- Implemented `getAnalyticsSummary()` to calculate revenue, bookings, conversion rates, task completion, and staff utilization metrics.
+- Created `getRevenueSeries()` for time-series revenue data with daily/weekly/monthly intervals.
+- Built `getStaffPerformance()` to track staff bookings and tasks completed.
+- Added `getStatusDistribution()` for task status breakdown analytics.
+- Proper database schema alignment using joins (bookings→clients→users, staff→users, invoices for revenue).
+
+**API Endpoints:**
+- GET `/api/analytics/summary?from={ISO}&to={ISO}` - Returns 6 KPI metrics
+- GET `/api/analytics/revenue-series?interval={day|week|month}&from={ISO}&to={ISO}` - Time series revenue data
+- GET `/api/analytics/staff-performance?from={ISO}&to={ISO}` - Staff performance metrics
+- GET `/api/analytics/status-distribution?from={ISO}&to={ISO}` - Task status breakdown
+- GET `/api/analytics/export?type={revenue|staff|tasks}&from={ISO}&to={ISO}` - CSV export with proper auth
+
+**Frontend Implementation:**
+- Created AnalyticsPage (`client/src/pages/analytics.tsx`) with comprehensive dashboard UI.
+- 6 KPI cards displaying: Total Revenue, Total Bookings, Avg Booking Value, Conversion Rate, Task Completion, Staff Utilization.
+- Date range controls: Presets (7 days, 30 days, this/last month, 90 days, this year) and custom date picker.
+- Recharts visualizations:
+  - LineChart for revenue over time with interval selector (day/week/month)
+  - BarChart for staff performance (bookings vs tasks completed)
+  - PieChart for task status distribution
+- CSV export functionality for all chart types with authenticated downloads.
+- Integrated into sidebar navigation under "Manage" section with BarChart3 icon.
+
+**Features:**
+- Role-based data filtering (owners see all data, staff see personal metrics via staffId parameter).
+- Responsive design with loading states for all queries.
+- Real-time metric calculation based on selected date ranges.
+- Multi-tenant support with proper ownerId filtering through table joins.
+
+**Technical Details:**
+- Uses TanStack Query for data fetching with proper TypeScript typing.
+- Revenue calculated from invoices table (not bookings.totalPrice which doesn't exist).
+- Bookings filtered via startTime field (not eventDate which doesn't exist).
+- Staff metrics joined with users table for proper name display and owner filtering.
+- Date presets automatically adjust interval selection for optimal chart display.
