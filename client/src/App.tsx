@@ -12,6 +12,7 @@ import Register from "@/pages/register";
 import StaffApply from "@/pages/staff-apply";
 import Dashboard from "@/pages/dashboard";
 import Clients from "@/pages/clients";
+import Leads from "@/pages/leads";
 import Staff from "@/pages/staff";
 import Proposals from "@/pages/proposals";
 import Bookings from "@/pages/bookings";
@@ -51,6 +52,7 @@ function Router() {
       <Route path="/staff-apply" component={StaffApply} />
       <Route path="/">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/clients">{() => <ProtectedRoute component={Clients} />}</Route>
+      <Route path="/leads">{() => <ProtectedRoute component={Leads} />}</Route>
       <Route path="/staff">{() => <ProtectedRoute component={Staff} />}</Route>
       <Route path="/proposals">{() => <ProtectedRoute component={Proposals} />}</Route>
       <Route path="/bookings">{() => <ProtectedRoute component={Bookings} />}</Route>

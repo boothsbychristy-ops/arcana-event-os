@@ -11,6 +11,7 @@ import {
   Settings,
   CreditCard,
   Globe,
+  UserPlus,
 } from "lucide-react";
 import {
   Sidebar,
@@ -33,6 +34,7 @@ const menuItems = [
   {
     group: "Sales",
     items: [
+      { title: "Leads", url: "/leads", icon: UserPlus, testId: "link-leads" },
       { title: "Clients", url: "/clients", icon: Users, testId: "link-clients" },
       { title: "Proposals", url: "/proposals", icon: FileText, testId: "link-proposals" },
       { title: "Bookings", url: "/bookings", icon: Calendar, testId: "link-bookings" },
