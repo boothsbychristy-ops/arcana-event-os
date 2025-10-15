@@ -19,6 +19,9 @@ import {
   insertBookingResponseSchema,
   insertUnavailableNoticeSchema,
   insertPrivacySettingsSchema,
+  insertBoardSchema,
+  insertBoardGroupSchema,
+  insertTaskStatusSchema,
   insertTaskSchema,
   insertMessageSchema,
   insertDeliverableSchema,
@@ -820,6 +823,125 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Boards
+  app.get("/api/boards", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const boards = await storage.getAllBoards(req.user!.id);
+      res.json(boards);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch boards" });
+    }
+  });
+
+  app.get("/api/boards/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const boardData = await storage.getBoardWithDetails(req.params.id);
+      if (!boardData) {
+        return res.status(404).json({ error: "Board not found" });
+      }
+      res.json(boardData);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch board" });
+    }
+  });
+
+  app.post("/api/boards", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertBoardSchema.parse({ ...req.body, ownerId: req.user!.id });
+      const board = await storage.createBoard(data);
+      res.json(board);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create board" });
+    }
+  });
+
+  app.patch("/api/boards/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertBoardSchema.partial().parse(req.body);
+      const board = await storage.updateBoard(req.params.id, data);
+      if (!board) {
+        return res.status(404).json({ error: "Board not found" });
+      }
+      res.json(board);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update board" });
+    }
+  });
+
+  app.delete("/api/boards/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const success = await storage.deleteBoard(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Board not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete board" });
+    }
+  });
+
+  // Board Groups
+  app.post("/api/boards/:id/groups", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertBoardGroupSchema.parse({ ...req.body, boardId: req.params.id });
+      const group = await storage.createBoardGroup(data);
+      res.json(group);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create group" });
+    }
+  });
+
+  app.patch("/api/boards/:id/groups/:groupId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertBoardGroupSchema.partial().parse(req.body);
+      const group = await storage.updateBoardGroup(req.params.groupId, data);
+      if (!group) {
+        return res.status(404).json({ error: "Group not found" });
+      }
+      res.json(group);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update group" });
+    }
+  });
+
+  app.delete("/api/boards/:id/groups/:groupId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const success = await storage.deleteBoardGroup(req.params.groupId);
+      if (!success) {
+        return res.status(404).json({ error: "Group not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete group" });
+    }
+  });
+
+  // Task Statuses
+  app.post("/api/boards/:id/statuses", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertTaskStatusSchema.parse({ ...req.body, boardId: req.params.id });
+      const status = await storage.createTaskStatus(data);
+      res.json(status);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create status" });
+    }
+  });
+
   // Tasks
   app.get("/api/tasks", async (req, res) => {
     try {
@@ -852,6 +974,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/tasks/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const task = await storage.getTask(req.params.id);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      res.json(task);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch task" });
+    }
+  });
+
   app.patch("/api/tasks/:id", async (req, res) => {
     try {
       const data = insertTaskSchema.partial().parse(req.body);
@@ -865,6 +999,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: error.errors });
       }
       res.status(500).json({ error: "Failed to update task" });
+    }
+  });
+
+  app.post("/api/tasks/:id/move", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { toGroupId, toIndex } = req.body;
+      if (!toGroupId || toIndex === undefined) {
+        return res.status(400).json({ error: "toGroupId and toIndex are required" });
+      }
+      const task = await storage.moveTask(req.params.id, toGroupId, toIndex);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+      res.json(task);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to move task" });
     }
   });
 
