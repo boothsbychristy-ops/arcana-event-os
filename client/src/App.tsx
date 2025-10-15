@@ -20,6 +20,8 @@ import Bookings from "@/pages/bookings";
 import BookingDetail from "@/pages/booking-detail";
 import Invoices from "@/pages/invoices";
 import Tasks from "@/pages/tasks";
+import Boards from "@/pages/boards";
+import BoardView from "@/pages/board-view";
 import Messages from "@/pages/messages";
 import PaymentSettings from "@/pages/settings/payment-settings";
 import BookingEngineSettings from "@/pages/settings/booking-engine";
@@ -61,6 +63,8 @@ function Router() {
       <Route path="/bookings/:id">{() => <ProtectedRoute component={BookingDetail} />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute component={Invoices} />}</Route>
       <Route path="/tasks">{() => <ProtectedRoute component={Tasks} />}</Route>
+      <Route path="/boards">{() => <ProtectedRoute component={Boards} />}</Route>
+      <Route path="/boards/:id">{() => <ProtectedRoute component={BoardView} />}</Route>
       <Route path="/messages">{() => <ProtectedRoute component={Messages} />}</Route>
       <Route path="/settings/payments">{() => <ProtectedRoute component={PaymentSettings} />}</Route>
       <Route path="/settings/booking-engine">{() => <ProtectedRoute component={BookingEngineSettings} />}</Route>
