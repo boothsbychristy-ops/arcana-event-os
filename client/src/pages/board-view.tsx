@@ -25,14 +25,16 @@ import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, u
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { TaskDetailDrawer } from "@/components/task-detail-drawer";
 
 // Task Card Component
-function TaskCard({ task, isDragging }: { task: any; isDragging?: boolean }) {
+function TaskCard({ task, isDragging, onClick }: { task: any; isDragging?: boolean; onClick?: () => void }) {
   const statusColor = task.statusId ? "bg-primary/20 text-primary" : "bg-muted";
   
   return (
     <Card 
-      className={`rounded-xl ${isDragging ? "opacity-50" : "hover-elevate"} cursor-grab active:cursor-grabbing`}
+      className={`rounded-xl ${isDragging ? "opacity-50" : "hover-elevate"} cursor-pointer`}
+      onClick={onClick}
       data-testid={`card-task-${task.id}`}
     >
       <CardHeader className="pb-3">
@@ -50,7 +52,7 @@ function TaskCard({ task, isDragging }: { task: any; isDragging?: boolean }) {
 }
 
 // Sortable Task Card
-function SortableTaskCard({ task }: { task: any }) {
+function SortableTaskCard({ task, onTaskClick }: { task: any; onTaskClick: (taskId: string) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { task },
@@ -63,13 +65,13 @@ function SortableTaskCard({ task }: { task: any }) {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <TaskCard task={task} isDragging={isDragging} />
+      <TaskCard task={task} isDragging={isDragging} onClick={() => onTaskClick(task.id)} />
     </div>
   );
 }
 
 // Group Column Component
-function GroupColumn({ group, tasks, statuses }: { group: any; tasks: any[]; statuses: any[] }) {
+function GroupColumn({ group, tasks, statuses, onTaskClick }: { group: any; tasks: any[]; statuses: any[]; onTaskClick: (taskId: string) => void }) {
   const [addTaskOpen, setAddTaskOpen] = useState(false);
   const { toast } = useToast();
   
@@ -123,7 +125,7 @@ function GroupColumn({ group, tasks, statuses }: { group: any; tasks: any[]; sta
         <CardContent className="flex-1 space-y-3 overflow-y-auto">
           <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
             {tasks.map((task) => (
-              <SortableTaskCard key={task.id} task={task} />
+              <SortableTaskCard key={task.id} task={task} onTaskClick={onTaskClick} />
             ))}
           </SortableContext>
           
@@ -193,7 +195,14 @@ export default function BoardView() {
   const [, setLocation] = useLocation();
   const [addGroupOpen, setAddGroupOpen] = useState(false);
   const [activeTask, setActiveTask] = useState<any>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const { toast } = useToast();
+
+  const handleTaskClick = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    setTaskDrawerOpen(true);
+  };
 
   const { data: boardData, isLoading } = useQuery({
     queryKey: ["/api/boards", params?.id],
@@ -345,6 +354,7 @@ export default function BoardView() {
                 group={group} 
                 tasks={groupTasks} 
                 statuses={statuses}
+                onTaskClick={handleTaskClick}
               />
             );
           })}
@@ -392,6 +402,12 @@ export default function BoardView() {
           {activeTask ? <TaskCard task={activeTask} isDragging /> : null}
         </DragOverlay>
       </DndContext>
+
+      <TaskDetailDrawer 
+        taskId={selectedTaskId}
+        open={taskDrawerOpen}
+        onOpenChange={setTaskDrawerOpen}
+      />
     </div>
   );
 }
