@@ -23,6 +23,11 @@ import type {
   BoardGroup, InsertBoardGroup,
   TaskStatus, InsertTaskStatus,
   Task, InsertTask,
+  TaskComment, InsertTaskComment,
+  TaskAttachment, InsertTaskAttachment,
+  Subtask, InsertSubtask,
+  TaskActivity, InsertTaskActivity,
+  BoardMember, InsertBoardMember,
   Message, InsertMessage,
   Deliverable, InsertDeliverable,
   Lead, InsertLead,
@@ -150,6 +155,33 @@ export interface IStorage {
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: string, task: Partial<InsertTask>): Promise<Task | undefined>;
   moveTask(id: string, toGroupId: string, toIndex: number): Promise<Task | undefined>;
+  
+  // Task Comments
+  getTaskComments(taskId: string): Promise<TaskComment[]>;
+  createTaskComment(comment: InsertTaskComment): Promise<TaskComment>;
+  updateTaskComment(id: string, comment: Partial<InsertTaskComment>): Promise<TaskComment | undefined>;
+  deleteTaskComment(id: string): Promise<boolean>;
+  
+  // Task Attachments
+  getTaskAttachments(taskId: string): Promise<TaskAttachment[]>;
+  createTaskAttachment(attachment: InsertTaskAttachment): Promise<TaskAttachment>;
+  deleteTaskAttachment(id: string): Promise<boolean>;
+  
+  // Subtasks
+  getSubtasks(taskId: string): Promise<Subtask[]>;
+  createSubtask(subtask: InsertSubtask): Promise<Subtask>;
+  updateSubtask(id: string, subtask: Partial<InsertSubtask>): Promise<Subtask | undefined>;
+  deleteSubtask(id: string): Promise<boolean>;
+  
+  // Task Activity
+  getTaskActivity(taskId: string): Promise<TaskActivity[]>;
+  createTaskActivity(activity: InsertTaskActivity): Promise<TaskActivity>;
+  
+  // Board Members
+  getBoardMembers(boardId: string): Promise<BoardMember[]>;
+  addBoardMember(member: InsertBoardMember): Promise<BoardMember>;
+  updateBoardMember(id: string, member: Partial<InsertBoardMember>): Promise<BoardMember | undefined>;
+  removeBoardMember(id: string): Promise<boolean>;
   
   // Messages
   getMessagesByBooking(bookingId: string): Promise<Message[]>;
@@ -645,6 +677,100 @@ export class DatabaseStorage implements IStorage {
       .where(eq(schema.tasks.id, id))
       .returning();
     return task;
+  }
+
+  // Task Comments
+  async getTaskComments(taskId: string): Promise<TaskComment[]> {
+    return db.select().from(schema.taskComments).where(eq(schema.taskComments.taskId, taskId)).orderBy(schema.taskComments.createdAt);
+  }
+
+  async createTaskComment(comment: InsertTaskComment): Promise<TaskComment> {
+    const [result] = await db.insert(schema.taskComments).values(comment).returning();
+    return result;
+  }
+
+  async updateTaskComment(id: string, commentData: Partial<InsertTaskComment>): Promise<TaskComment | undefined> {
+    const [comment] = await db.update(schema.taskComments)
+      .set({ ...commentData, updatedAt: new Date() })
+      .where(eq(schema.taskComments.id, id))
+      .returning();
+    return comment;
+  }
+
+  async deleteTaskComment(id: string): Promise<boolean> {
+    const result = await db.delete(schema.taskComments).where(eq(schema.taskComments.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Task Attachments
+  async getTaskAttachments(taskId: string): Promise<TaskAttachment[]> {
+    return db.select().from(schema.taskAttachments).where(eq(schema.taskAttachments.taskId, taskId)).orderBy(schema.taskAttachments.createdAt);
+  }
+
+  async createTaskAttachment(attachment: InsertTaskAttachment): Promise<TaskAttachment> {
+    const [result] = await db.insert(schema.taskAttachments).values(attachment).returning();
+    return result;
+  }
+
+  async deleteTaskAttachment(id: string): Promise<boolean> {
+    const result = await db.delete(schema.taskAttachments).where(eq(schema.taskAttachments.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Subtasks
+  async getSubtasks(taskId: string): Promise<Subtask[]> {
+    return db.select().from(schema.subtasks).where(eq(schema.subtasks.taskId, taskId)).orderBy(schema.subtasks.sortIndex);
+  }
+
+  async createSubtask(subtask: InsertSubtask): Promise<Subtask> {
+    const [result] = await db.insert(schema.subtasks).values(subtask).returning();
+    return result;
+  }
+
+  async updateSubtask(id: string, subtaskData: Partial<InsertSubtask>): Promise<Subtask | undefined> {
+    const updates = { ...subtaskData };
+    if (subtaskData.isCompleted && !subtaskData.completedAt) {
+      updates.completedAt = new Date();
+    } else if (subtaskData.isCompleted === false) {
+      updates.completedAt = null as any;
+    }
+    const [subtask] = await db.update(schema.subtasks).set(updates).where(eq(schema.subtasks.id, id)).returning();
+    return subtask;
+  }
+
+  async deleteSubtask(id: string): Promise<boolean> {
+    const result = await db.delete(schema.subtasks).where(eq(schema.subtasks.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Task Activity
+  async getTaskActivity(taskId: string): Promise<TaskActivity[]> {
+    return db.select().from(schema.taskActivity).where(eq(schema.taskActivity.taskId, taskId)).orderBy(desc(schema.taskActivity.createdAt));
+  }
+
+  async createTaskActivity(activity: InsertTaskActivity): Promise<TaskActivity> {
+    const [result] = await db.insert(schema.taskActivity).values(activity).returning();
+    return result;
+  }
+
+  // Board Members
+  async getBoardMembers(boardId: string): Promise<BoardMember[]> {
+    return db.select().from(schema.boardMembers).where(eq(schema.boardMembers.boardId, boardId)).orderBy(schema.boardMembers.createdAt);
+  }
+
+  async addBoardMember(member: InsertBoardMember): Promise<BoardMember> {
+    const [result] = await db.insert(schema.boardMembers).values(member).returning();
+    return result;
+  }
+
+  async updateBoardMember(id: string, memberData: Partial<InsertBoardMember>): Promise<BoardMember | undefined> {
+    const [member] = await db.update(schema.boardMembers).set(memberData).where(eq(schema.boardMembers.id, id)).returning();
+    return member;
+  }
+
+  async removeBoardMember(id: string): Promise<boolean> {
+    const result = await db.delete(schema.boardMembers).where(eq(schema.boardMembers.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // Messages
