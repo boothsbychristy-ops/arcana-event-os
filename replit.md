@@ -8,6 +8,28 @@ The platform enables event businesses to manage the complete customer lifecycle�
 
 ## Recent Changes
 
+### Sprint 6: Kanban Project & Task Manager (October 2025) ✅
+**Completed Features:**
+- Monday.com-style Kanban board system with drag & drop task management
+- Multi-board support with customizable workflow groups
+- Visual task organization with status-based color coding
+- Real-time task movement across board groups with position persistence
+- Responsive Kanban UI with horizontal scrolling for multiple columns
+
+**Technical Implementation:**
+- Added `boards`, `board_groups`, `task_statuses` tables with varchar UUID primary keys
+- Enhanced `tasks` table with board fields: `board_id`, `group_id`, `sort_index`, `linked_client_id`, `linked_booking_id`
+- Integrated @dnd-kit library (@dnd-kit/core, sortable, modifiers, utilities) for drag & drop
+- Implemented complete CRUD API: `/api/boards`, `/api/boards/:id/groups`, `/api/tasks/:id/move`
+- Created BoardsPage (list view) and BoardView (Kanban board) components
+- Built GroupColumn and TaskCard components with dnd-kit SortableContext
+- Developed StatusPill component for visual status indicators
+
+**Bug Fixes:**
+- Fixed board persistence after page reload by adding `enabled: !!user` to boards query (auth dependency)
+- Corrected group title rendering - changed `group.name` to `group.title` to match schema field name
+- Ensured proper task sort order preservation during drag & drop operations
+
 ### Sprint 5: Public Registration & Lead Management (October 2025) ✅
 **Completed Features:**
 - Public event registration form (`/register`) with multi-step wizard interface
