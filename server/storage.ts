@@ -19,6 +19,9 @@ import type {
   BookingResponse, InsertBookingResponse,
   UnavailableNotice, InsertUnavailableNotice,
   PrivacySettings, InsertPrivacySettings,
+  Board, InsertBoard,
+  BoardGroup, InsertBoardGroup,
+  TaskStatus, InsertTaskStatus,
   Task, InsertTask,
   Message, InsertMessage,
   Deliverable, InsertDeliverable,
@@ -120,11 +123,33 @@ export interface IStorage {
   getPrivacySettings(): Promise<PrivacySettings | undefined>;
   upsertPrivacySettings(settings: InsertPrivacySettings): Promise<PrivacySettings>;
   
+  // Boards
+  getAllBoards(ownerId: string): Promise<Board[]>;
+  getBoard(id: string): Promise<Board | undefined>;
+  getBoardWithDetails(id: string): Promise<{ board: Board; groups: BoardGroup[]; tasks: Task[]; statuses: TaskStatus[] } | undefined>;
+  createBoard(board: InsertBoard): Promise<Board>;
+  updateBoard(id: string, board: Partial<InsertBoard>): Promise<Board | undefined>;
+  deleteBoard(id: string): Promise<boolean>;
+  
+  // Board Groups
+  getBoardGroups(boardId: string): Promise<BoardGroup[]>;
+  createBoardGroup(group: InsertBoardGroup): Promise<BoardGroup>;
+  updateBoardGroup(id: string, group: Partial<InsertBoardGroup>): Promise<BoardGroup | undefined>;
+  deleteBoardGroup(id: string): Promise<boolean>;
+  
+  // Task Statuses
+  getTaskStatuses(boardId: string): Promise<TaskStatus[]>;
+  createTaskStatus(status: InsertTaskStatus): Promise<TaskStatus>;
+  deleteTaskStatus(id: string): Promise<boolean>;
+  
   // Tasks
   getAllTasks(): Promise<Task[]>;
   getTasksByBooking(bookingId: string): Promise<Task[]>;
+  getTasksByBoard(boardId: string): Promise<Task[]>;
+  getTask(id: string): Promise<Task | undefined>;
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: string, task: Partial<InsertTask>): Promise<Task | undefined>;
+  moveTask(id: string, toGroupId: string, toIndex: number): Promise<Task | undefined>;
   
   // Messages
   getMessagesByBooking(bookingId: string): Promise<Message[]>;
@@ -515,6 +540,77 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // Boards
+  async getAllBoards(ownerId: string): Promise<Board[]> {
+    return db.select().from(schema.boards).where(eq(schema.boards.ownerId, ownerId)).orderBy(desc(schema.boards.createdAt));
+  }
+
+  async getBoard(id: string): Promise<Board | undefined> {
+    const [board] = await db.select().from(schema.boards).where(eq(schema.boards.id, id));
+    return board;
+  }
+
+  async getBoardWithDetails(id: string): Promise<{ board: Board; groups: BoardGroup[]; tasks: Task[]; statuses: TaskStatus[] } | undefined> {
+    const board = await this.getBoard(id);
+    if (!board) return undefined;
+
+    const groups = await this.getBoardGroups(id);
+    const tasks = await this.getTasksByBoard(id);
+    const statuses = await this.getTaskStatuses(id);
+
+    return { board, groups, tasks, statuses };
+  }
+
+  async createBoard(board: InsertBoard): Promise<Board> {
+    const [result] = await db.insert(schema.boards).values(board).returning();
+    return result;
+  }
+
+  async updateBoard(id: string, boardData: Partial<InsertBoard>): Promise<Board | undefined> {
+    const [board] = await db.update(schema.boards).set(boardData).where(eq(schema.boards.id, id)).returning();
+    return board;
+  }
+
+  async deleteBoard(id: string): Promise<boolean> {
+    const result = await db.delete(schema.boards).where(eq(schema.boards.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Board Groups
+  async getBoardGroups(boardId: string): Promise<BoardGroup[]> {
+    return db.select().from(schema.boardGroups).where(eq(schema.boardGroups.boardId, boardId)).orderBy(schema.boardGroups.sortIndex);
+  }
+
+  async createBoardGroup(group: InsertBoardGroup): Promise<BoardGroup> {
+    const [result] = await db.insert(schema.boardGroups).values(group).returning();
+    return result;
+  }
+
+  async updateBoardGroup(id: string, groupData: Partial<InsertBoardGroup>): Promise<BoardGroup | undefined> {
+    const [group] = await db.update(schema.boardGroups).set(groupData).where(eq(schema.boardGroups.id, id)).returning();
+    return group;
+  }
+
+  async deleteBoardGroup(id: string): Promise<boolean> {
+    const result = await db.delete(schema.boardGroups).where(eq(schema.boardGroups.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Task Statuses
+  async getTaskStatuses(boardId: string): Promise<TaskStatus[]> {
+    return db.select().from(schema.taskStatuses).where(eq(schema.taskStatuses.boardId, boardId)).orderBy(schema.taskStatuses.sortIndex);
+  }
+
+  async createTaskStatus(status: InsertTaskStatus): Promise<TaskStatus> {
+    const [result] = await db.insert(schema.taskStatuses).values(status).returning();
+    return result;
+  }
+
+  async deleteTaskStatus(id: string): Promise<boolean> {
+    const result = await db.delete(schema.taskStatuses).where(eq(schema.taskStatuses.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
   // Tasks
   async getAllTasks(): Promise<Task[]> {
     return db.select().from(schema.tasks).orderBy(desc(schema.tasks.createdAt));
@@ -524,6 +620,15 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(schema.tasks).where(eq(schema.tasks.bookingId, bookingId));
   }
 
+  async getTasksByBoard(boardId: string): Promise<Task[]> {
+    return db.select().from(schema.tasks).where(eq(schema.tasks.boardId, boardId)).orderBy(schema.tasks.sortIndex);
+  }
+
+  async getTask(id: string): Promise<Task | undefined> {
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id));
+    return task;
+  }
+
   async createTask(task: InsertTask): Promise<Task> {
     const [result] = await db.insert(schema.tasks).values(task).returning();
     return result;
@@ -531,6 +636,14 @@ export class DatabaseStorage implements IStorage {
 
   async updateTask(id: string, taskData: Partial<InsertTask>): Promise<Task | undefined> {
     const [task] = await db.update(schema.tasks).set(taskData).where(eq(schema.tasks.id, id)).returning();
+    return task;
+  }
+
+  async moveTask(id: string, toGroupId: string, toIndex: number): Promise<Task | undefined> {
+    const [task] = await db.update(schema.tasks)
+      .set({ groupId: toGroupId, sortIndex: toIndex, updatedAt: new Date() })
+      .where(eq(schema.tasks.id, id))
+      .returning();
     return task;
   }
 
