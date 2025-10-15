@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
@@ -22,12 +22,21 @@ interface CalendarFilters {
 }
 
 export default function CalendarPage() {
+  const calendarRef = useRef<FullCalendar>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [view, setView] = useState<"dayGridMonth" | "timeGridWeek" | "timeGridDay">("dayGridMonth");
   const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
   const [filters, setFilters] = useState<CalendarFilters>({});
   const { toast } = useToast();
+
+  // Update calendar view when view state changes
+  useEffect(() => {
+    if (calendarRef.current) {
+      const calendarApi = calendarRef.current.getApi();
+      calendarApi.changeView(view);
+    }
+  }, [view]);
 
   // Fetch assignable users for filter
   const { data: assignableUsers = [] } = useQuery({
@@ -61,7 +70,9 @@ export default function CalendarPage() {
         credentials: "include",
       });
       if (!response.ok) throw new Error("Failed to fetch events");
-      return response.json();
+      const data = await response.json();
+      console.log("Calendar events fetched:", data);
+      return data;
     },
   });
 
@@ -287,6 +298,7 @@ export default function CalendarPage() {
         <Card className="lg:col-span-3">
           <CardContent className="p-6">
             <FullCalendar
+              ref={calendarRef}
               plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
               initialView={view}
               headerToolbar={{

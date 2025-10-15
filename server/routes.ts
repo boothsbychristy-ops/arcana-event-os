@@ -993,10 +993,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/tasks", async (req, res) => {
+  app.post("/api/tasks", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      const user = req.user!;
+      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      
       const data = insertTaskSchema.parse(req.body);
-      const task = await storage.createTask(data);
+      const task = await storage.createTask({ ...data, ownerId });
       res.json(task);
     } catch (error) {
       if (error instanceof z.ZodError) {
