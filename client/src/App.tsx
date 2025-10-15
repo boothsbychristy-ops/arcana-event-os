@@ -24,6 +24,7 @@ import Boards from "@/pages/boards";
 import BoardView from "@/pages/board-view";
 import Calendar from "@/pages/calendar";
 import Messages from "@/pages/messages";
+import Automations from "@/pages/automations";
 import PaymentSettings from "@/pages/settings/payment-settings";
 import BookingEngineSettings from "@/pages/settings/booking-engine";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ function Router() {
       <Route path="/boards/:id">{() => <ProtectedRoute component={BoardView} />}</Route>
       <Route path="/calendar">{() => <ProtectedRoute component={Calendar} />}</Route>
       <Route path="/messages">{() => <ProtectedRoute component={Messages} />}</Route>
+      <Route path="/automations">{() => <ProtectedRoute component={Automations} />}</Route>
       <Route path="/settings/payments">{() => <ProtectedRoute component={PaymentSettings} />}</Route>
       <Route path="/settings/booking-engine">{() => <ProtectedRoute component={BookingEngineSettings} />}</Route>
       <Route component={NotFound} />

@@ -15,6 +15,7 @@ import {
   UserPlus,
   ClipboardList,
   LayoutGrid,
+  Zap,
 } from "lucide-react";
 import {
   Sidebar,
@@ -52,6 +53,7 @@ const menuItems = [
       { title: "Boards", url: "/boards", icon: LayoutGrid, testId: "link-boards" },
       { title: "Tasks", url: "/tasks", icon: CheckSquare, testId: "link-tasks" },
       { title: "Calendar", url: "/calendar", icon: CalendarDays, testId: "link-calendar" },
+      { title: "Automations", url: "/automations", icon: Zap, testId: "link-automations" },
       { title: "Messages", url: "/messages", icon: MessageSquare, testId: "link-messages" },
     ],
   },
