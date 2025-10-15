@@ -1,0 +1,186 @@
+Perfect — here’s your **ready-to-paste Replit Architect Payload (Sprint 7: Calendar + Scheduling + Filters)**.
+It adds a Monday-style calendar for tasks (month/week/day), drag-to-reschedule, rich event popovers, filters (staff, client, status, priority), and quick-linking to Clients/Bookings.
+No external APIs or OAuth.
+
+---
+
+## 🧩 **Payload — Rainbow CRM: Calendar, Filters & Client Linkage**
+
+````
+Create a new Sprint called "Calendar + Scheduling + Filters (Sprint 7)" for Rainbow CRM.
+
+🎯 GOAL
+Add a first-class Calendar view for tasks:
+- FullCalendar (month/week/day) with drag-to-reschedule
+- Event popover + click opens Task Drawer
+- Filters (assignee, client, status, priority, date range)
+- Client/Booking mini-cards + deep links
+- Basic permissions (staff see assigned tasks; owner/admin see all)
+
+---
+
+📦 INSTALL
+npm install @fullcalendar/react @fullcalendar/daygrid @fullcalendar/timegrid @fullcalendar/interaction date-fns
+
+---
+
+🧠 DATA / MIGRATIONS
+(No new tables required.) Ensure `tasks.due_at` exists and is indexed for range queries.
+
+Optional index:
+```sql
+create index if not exists idx_tasks_due_at on tasks (due_at);
+````
+
+---
+
+⚙️ SERVER: ROUTES (new or extend `/server/routes/calendar.js`)
+
+1. `GET /api/calendar/tasks?from=&to=&assignee_id=&client_id=&status=&priority=`
+
+   * Returns events shaped for FullCalendar:
+
+     ```json
+     [{
+       "id": "task-uuid",
+       "title": "Task title",
+       "start": "2025-10-20T10:00:00.000Z",
+       "end": "2025-10-20T10:30:00.000Z", // optional; fallback to start
+       "allDay": false,
+       "status": "in_progress",
+       "priority": "high",
+       "assignee": {"id":"...","name":"...","avatar_url":"..."},
+       "client": {"id":"...","name":"..."} | null,
+       "booking": {"id":"...","title":"...","date":"..."} | null
+     }]
+     ```
+   * Filters:
+
+     * `from`/`to` required (ISO)
+     * Optional: `assignee_id`, `client_id`, `status`, `priority`
+   * Permission:
+
+     * owner/admin: all tasks for their owner_id
+     * staff: only tasks where `owner_id == staff.owner_id` AND (assignee == user OR user is in task team later)
+   * Only tasks with `due_at` in range return.
+
+2. `PATCH /api/tasks/:id/dates`
+
+   * Body: `{ start, end }` (ISO strings; `end` optional)
+   * Sets `due_at = start` (and `meta.end_at = end` if end provided)
+   * Creates task_activity entry `{action:'date.changed', payload:{oldStart, newStart, oldEnd, newEnd}}`
+   * Validates permission as above.
+
+3. (Optional UX helper) `GET /api/tasks/:id/summary`
+
+   * Returns compact info for popover: title, status, due_at, assignee, client, booking.
+
+Mount the router at `/api/calendar`.
+
+---
+
+🎨 CLIENT: PAGES & COMPONENTS
+
+1. **Calendar Page** `/client/src/pages/CalendarPage.jsx`
+
+   * Imports FullCalendar with plugins: dayGrid, timeGrid, interaction.
+   * View switcher (Month | Week | Day).
+   * Sidebar filters:
+
+     * Assignee multi-select (populate from `/api/users/assignable`)
+     * Client select (search clients)
+     * Status chips (from `task_statuses` or common set)
+     * Priority chips (Low/Med/High/Urgent)
+     * Date range (defaults to current visible range)
+   * Fetch events via `GET /api/calendar/tasks` when:
+
+     * view/date range changes
+     * filters change
+   * Drag/Drop:
+
+     * `eventDrop` handler → `PATCH /api/tasks/:id/dates` with new start/end
+     * Show toast success/error; refetch events
+   * Click:
+
+     * `eventClick` → open Task Drawer/Modal (existing Task Modal from Sprint 6)
+
+2. **Event Popover (hover or click quick view)**
+
+   * New component `/client/src/components/calendar/EventPopover.jsx`
+   * Shows: Title, Status pill, Assignee avatar, Due date/time, Client/Booking mini-cards.
+   * Buttons: “Open Task”, “Mark Done” (quick status update), “Reassign”
+   * Uses shadcn Popover or Tooltip on hover; fall back to click on mobile.
+
+3. **Client/Booking Mini-Cards**
+
+   * New component `/client/src/components/linked/LinkedMiniCard.jsx`
+   * If task.linked_client_id present → show name + link to `/clients/:id`
+   * If task.linked_booking_id present → show label + link to `/bookings/:id`
+   * Compact, rounded card with subtle border (rainbow accent).
+
+4. **Filters**
+
+   * New hook `/client/src/hooks/useCalendarFilters.js`
+
+     * Holds current filter state and exposes `queryParams` for API call.
+   * Persist last-used filters in `localStorage`.
+
+5. **Integration**
+
+   * Add “Calendar” to main nav.
+   * From Task Modal: add “View on Calendar” link → navigates and highlights date.
+
+6. **Styling**
+
+   * Use Empress rainbow for active view tab + primary CTA.
+   * FullCalendar header styled with Tailwind classes.
+   * Events render with a colored left border based on status:
+
+     * todo: slate
+     * in_progress: amber
+     * stuck: rose
+     * done: emerald
+   * Show assignee avatar (small) inline in event content when space allows.
+
+---
+
+🧪 ACCEPTANCE CRITERIA
+
+1. Calendar renders tasks by `due_at` for current month/week/day; switching views updates data.
+2. Drag an event to a new date/time → server saves; after refresh, event remains at new slot; activity log entry created.
+3. Event click opens Task Modal; popover shows quick info with client/booking mini-cards.
+4. Filters (assignee, client, status, priority) refine the events; clear filters resets.
+5. Staff users only see their tasks; owners/admins see all tasks for their tenant.
+6. Mobile works: pinch/scroll month view; tap opens modal; popover falls back to click.
+
+---
+
+🛡️ SECURITY / DX
+
+* Enforce tenant boundary (`owner_id`) on all calendar routes.
+* Validate `start/end` ISO dates server-side; reject past dates if your policy demands.
+* Return consistent JSON errors; front-end toasts them.
+* Log date changes into `task_activity`.
+
+---
+
+📄 DEV CHECKLIST
+
+* Install deps; implement routes; add CalendarPage; wire filters; test drag-reschedule.
+* Seed a few tasks with `due_at` for demo.
+* Confirm Task Modal opens from calendar; edits reflect in Kanban and vice versa.
+
+---
+
+📜 LICENSE NOTE
+FullCalendar (React wrapper & core) is MIT for basic plugins used here; safe for commercial, closed-source integration.
+
+```
+
+---
+
+### After this compiles and passes tests
+We’ll roll out **Sprint 8 (Automations & Agents)**: trigger→action workflows (e.g., “task due tomorrow → send reminder”, “status = done → close subtasks”), with cron + logs — still no external vendors until you’re ready.
+
+Want me to prep that **Automations & Agents** payload now so it’s ready to paste the moment this finishes?
+```

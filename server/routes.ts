@@ -1261,6 +1261,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Calendar
+  app.get("/api/calendar/tasks", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { from, to, assignee_id, client_id, status, priority } = req.query;
+      
+      if (!from || !to) {
+        return res.status(400).json({ error: "from and to query parameters are required" });
+      }
+
+      const user = req.user!;
+      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+
+      const filters = {
+        ownerId,
+        from: new Date(from as string),
+        to: new Date(to as string),
+        assigneeId: assignee_id as string | undefined,
+        clientId: client_id as string | undefined,
+        status: status as string | undefined,
+        priority: priority as string | undefined,
+      };
+
+      // For staff, only show tasks assigned to them
+      if (user.role === 'staff') {
+        filters.assigneeId = user.id;
+      }
+
+      const events = await storage.getCalendarTasks(filters);
+      res.json(events);
+    } catch (error) {
+      console.error('Calendar tasks error:', error);
+      res.status(500).json({ error: "Failed to fetch calendar tasks" });
+    }
+  });
+
+  app.patch("/api/tasks/:id/dates", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { start, end } = req.body;
+      
+      if (!start) {
+        return res.status(400).json({ error: "start date is required" });
+      }
+
+      const task = await storage.getTask(req.params.id);
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+
+      const oldStart = task.dueAt?.toISOString();
+      const newStart = new Date(start).toISOString();
+
+      const updated = await storage.updateTask(req.params.id, {
+        dueAt: new Date(start),
+      });
+
+      // Log the activity
+      await storage.createTaskActivity({
+        taskId: req.params.id,
+        userId: req.user!.id,
+        action: 'date_changed',
+        details: JSON.stringify({
+          oldStart,
+          newStart,
+          oldEnd: end ? oldStart : null,
+          newEnd: end ? new Date(end).toISOString() : null,
+        }),
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Update task dates error:', error);
+      res.status(500).json({ error: "Failed to update task dates" });
+    }
+  });
+
   // Messages
   app.get("/api/messages", async (req, res) => {
     try {

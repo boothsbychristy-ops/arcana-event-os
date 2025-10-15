@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, lte, or, isNotNull } from "drizzle-orm";
 import { db } from "./db";
 import * as schema from "@shared/schema";
 import type {
@@ -152,6 +152,7 @@ export interface IStorage {
   getTasksByBooking(bookingId: string): Promise<Task[]>;
   getTasksByBoard(boardId: string): Promise<Task[]>;
   getTask(id: string): Promise<Task | undefined>;
+  getCalendarTasks(filters: { ownerId: string; from: Date; to: Date; assigneeId?: string; clientId?: string; status?: string; priority?: string }): Promise<any[]>;
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: string, task: Partial<InsertTask>): Promise<Task | undefined>;
   moveTask(id: string, toGroupId: string, toIndex: number): Promise<Task | undefined>;
@@ -659,6 +660,84 @@ export class DatabaseStorage implements IStorage {
   async getTask(id: string): Promise<Task | undefined> {
     const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id));
     return task;
+  }
+
+  async getCalendarTasks(filters: { ownerId: string; from: Date; to: Date; assigneeId?: string; clientId?: string; status?: string; priority?: string }): Promise<any[]> {
+    const conditions = [
+      eq(schema.tasks.ownerId, filters.ownerId),
+      isNotNull(schema.tasks.dueAt),
+      gte(schema.tasks.dueAt, filters.from),
+      lte(schema.tasks.dueAt, filters.to),
+    ];
+
+    if (filters.assigneeId) {
+      conditions.push(eq(schema.tasks.assignedTo, filters.assigneeId));
+    }
+    if (filters.clientId) {
+      conditions.push(eq(schema.tasks.linkedClientId, filters.clientId));
+    }
+    if (filters.status) {
+      conditions.push(eq(schema.tasks.status, filters.status));
+    }
+    if (filters.priority) {
+      conditions.push(eq(schema.tasks.priority, filters.priority));
+    }
+
+    const tasks = await db
+      .select({
+        id: schema.tasks.id,
+        title: schema.tasks.title,
+        dueAt: schema.tasks.dueAt,
+        status: schema.tasks.status,
+        priority: schema.tasks.priority,
+        assignedTo: schema.tasks.assignedTo,
+        linkedClientId: schema.tasks.linkedClientId,
+        linkedBookingId: schema.tasks.linkedBookingId,
+      })
+      .from(schema.tasks)
+      .where(and(...conditions))
+      .orderBy(schema.tasks.dueAt);
+
+    // Enrich with user, client, and booking data
+    const enrichedTasks = await Promise.all(
+      tasks.map(async (task) => {
+        const assignee = task.assignedTo
+          ? await db.select({ id: schema.users.id, fullName: schema.users.fullName, avatarUrl: schema.users.avatarUrl })
+              .from(schema.users)
+              .where(eq(schema.users.id, task.assignedTo))
+              .then(([user]) => user)
+          : null;
+
+        const client = task.linkedClientId
+          ? await db.select({ id: schema.clients.id, fullName: schema.clients.fullName })
+              .from(schema.clients)
+              .where(eq(schema.clients.id, task.linkedClientId))
+              .then(([c]) => c)
+          : null;
+
+        const booking = task.linkedBookingId
+          ? await db.select({ id: schema.bookings.id, eventType: schema.bookings.eventType, startTime: schema.bookings.startTime })
+              .from(schema.bookings)
+              .where(eq(schema.bookings.id, task.linkedBookingId))
+              .then(([b]) => b)
+          : null;
+
+        return {
+          id: task.id,
+          title: task.title,
+          start: task.dueAt?.toISOString(),
+          end: task.dueAt?.toISOString(), // Same as start for now
+          allDay: false,
+          status: task.status,
+          priority: task.priority,
+          assignee: assignee ? { id: assignee.id, name: assignee.fullName, avatar_url: assignee.avatarUrl } : null,
+          client: client ? { id: client.id, name: client.fullName } : null,
+          booking: booking ? { id: booking.id, title: booking.eventType || '', date: booking.startTime?.toISOString() } : null,
+        };
+      })
+    );
+
+    return enrichedTasks;
   }
 
   async createTask(task: InsertTask): Promise<Task> {
