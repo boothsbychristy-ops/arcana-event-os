@@ -256,6 +256,36 @@ export const deliverables = pgTable("deliverables", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Leads from public registration
+export const leads = pgTable("leads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id).notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  eventDate: timestamp("event_date"),
+  packageId: varchar("package_id"),
+  notes: text("notes"),
+  status: text("status", { enum: ["new", "qualified", "converted", "archived"] }).notNull().default("new"),
+  answers: jsonb("answers"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Staff applications for self-signup
+export const staffApplications = pgTable("staff_applications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id).notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  experience: text("experience"),
+  portfolioUrl: text("portfolio_url"),
+  status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
@@ -277,6 +307,8 @@ export const insertPrivacySettingsSchema = createInsertSchema(privacySettings).o
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, completedAt: true });
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
 export const insertDeliverableSchema = createInsertSchema(deliverables).omit({ id: true, createdAt: true });
+export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true });
+export const insertStaffApplicationSchema = createInsertSchema(staffApplications).omit({ id: true, createdAt: true });
 
 // TypeScript types
 export type User = typeof users.$inferSelect;
@@ -338,6 +370,12 @@ export type InsertMessage = z.infer<typeof insertMessageSchema>;
 
 export type Deliverable = typeof deliverables.$inferSelect;
 export type InsertDeliverable = z.infer<typeof insertDeliverableSchema>;
+
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = z.infer<typeof insertLeadSchema>;
+
+export type StaffApplication = typeof staffApplications.$inferSelect;
+export type InsertStaffApplication = z.infer<typeof insertStaffApplicationSchema>;
 
 // Auth schemas
 export const loginSchema = z.object({
