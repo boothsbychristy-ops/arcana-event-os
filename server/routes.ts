@@ -22,6 +22,8 @@ import {
   insertTaskSchema,
   insertMessageSchema,
   insertDeliverableSchema,
+  insertLeadSchema,
+  insertStaffApplicationSchema,
   loginSchema,
   signupSchema,
 } from "@shared/schema";
@@ -128,6 +130,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/logout", (req, res) => {
     // Client-side will remove the token
     res.json({ success: true });
+  });
+
+  // Public Registration Endpoints (no auth required)
+  app.post("/api/public/register", async (req, res) => {
+    try {
+      // Honeypot spam protection
+      if (req.body.honeypot) {
+        return res.status(400).json({ error: "Invalid submission" });
+      }
+
+      const data = insertLeadSchema.parse(req.body);
+      
+      // Require ownerId in request for multi-tenant support
+      // In production, this would come from the subdomain or public booking page context
+      if (!data.ownerId) {
+        return res.status(400).json({ error: "Owner context required" });
+      }
+
+      const lead = await storage.createLead(data);
+      res.json({ success: true, leadId: lead.id });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to submit registration" });
+    }
+  });
+
+  app.post("/api/public/staff-apply", async (req, res) => {
+    try {
+      // Honeypot spam protection
+      if (req.body.honeypot) {
+        return res.status(400).json({ error: "Invalid submission" });
+      }
+
+      const data = insertStaffApplicationSchema.parse(req.body);
+      
+      // Require ownerId in request for multi-tenant support
+      if (!data.ownerId) {
+        return res.status(400).json({ error: "Owner context required" });
+      }
+
+      const application = await storage.createStaffApplication(data);
+      res.json({ success: true, applicationId: application.id });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to submit application" });
+    }
   });
 
   // Apply auth middleware to all routes below this point
@@ -896,6 +948,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete deliverable" });
+    }
+  });
+
+  // Leads
+  app.get("/api/leads", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const leads = await storage.getAllLeads();
+      res.json(leads);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch leads" });
+    }
+  });
+
+  app.get("/api/leads/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const lead = await storage.getLead(req.params.id);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      res.json(lead);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch lead" });
+    }
+  });
+
+  app.patch("/api/leads/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertLeadSchema.partial().parse(req.body);
+      const lead = await storage.updateLead(req.params.id, data);
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+      res.json(lead);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update lead" });
+    }
+  });
+
+  app.post("/api/leads/:id/convert", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const result = await storage.convertLeadToClient(req.params.id);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to convert lead" });
+    }
+  });
+
+  // Staff Applications
+  app.get("/api/staff-applications", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const applications = await storage.getAllStaffApplications();
+      res.json(applications);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch staff applications" });
+    }
+  });
+
+  app.get("/api/staff-applications/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const application = await storage.getStaffApplication(req.params.id);
+      if (!application) {
+        return res.status(404).json({ error: "Staff application not found" });
+      }
+      res.json(application);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch staff application" });
+    }
+  });
+
+  app.post("/api/staff-applications/:id/approve", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const result = await storage.approveStaffApplication(req.params.id);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to approve application" });
+    }
+  });
+
+  app.post("/api/staff-applications/:id/reject", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const application = await storage.rejectStaffApplication(req.params.id);
+      if (!application) {
+        return res.status(404).json({ error: "Staff application not found" });
+      }
+      res.json(application);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reject application" });
     }
   });
 

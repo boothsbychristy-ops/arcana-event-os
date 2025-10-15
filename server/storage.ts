@@ -22,6 +22,8 @@ import type {
   Task, InsertTask,
   Message, InsertMessage,
   Deliverable, InsertDeliverable,
+  Lead, InsertLead,
+  StaffApplication, InsertStaffApplication,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -134,6 +136,21 @@ export interface IStorage {
   getDeliverablesByBooking(bookingId: string): Promise<Deliverable[]>;
   createDeliverable(deliverable: InsertDeliverable): Promise<Deliverable>;
   deleteDeliverable(id: string): Promise<boolean>;
+  
+  // Leads
+  getAllLeads(): Promise<Lead[]>;
+  getLead(id: string): Promise<Lead | undefined>;
+  createLead(lead: InsertLead): Promise<Lead>;
+  updateLead(id: string, leadData: Partial<InsertLead>): Promise<Lead | undefined>;
+  convertLeadToClient(leadId: string): Promise<{ client: Client; proposal: Proposal }>;
+  
+  // Staff Applications
+  getAllStaffApplications(): Promise<StaffApplication[]>;
+  getStaffApplication(id: string): Promise<StaffApplication | undefined>;
+  createStaffApplication(application: InsertStaffApplication): Promise<StaffApplication>;
+  updateStaffApplication(id: string, status: string): Promise<StaffApplication | undefined>;
+  approveStaffApplication(id: string): Promise<{ application: StaffApplication; staff: Staff; user: User; temporaryPassword: string }>;
+  rejectStaffApplication(id: string): Promise<StaffApplication | undefined>;
   
   // Dashboard Stats
   getDashboardStats(): Promise<{
@@ -549,6 +566,111 @@ export class DatabaseStorage implements IStorage {
   async deleteDeliverable(id: string): Promise<boolean> {
     const result = await db.delete(schema.deliverables).where(eq(schema.deliverables.id, id));
     return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Leads
+  async getAllLeads(): Promise<Lead[]> {
+    return db.select().from(schema.leads).orderBy(desc(schema.leads.createdAt));
+  }
+
+  async getLead(id: string): Promise<Lead | undefined> {
+    const [lead] = await db.select().from(schema.leads).where(eq(schema.leads.id, id));
+    return lead;
+  }
+
+  async createLead(lead: InsertLead): Promise<Lead> {
+    const [result] = await db.insert(schema.leads).values(lead).returning();
+    return result;
+  }
+
+  async updateLead(id: string, leadData: Partial<InsertLead>): Promise<Lead | undefined> {
+    const [lead] = await db.update(schema.leads).set(leadData).where(eq(schema.leads.id, id)).returning();
+    return lead;
+  }
+
+  async convertLeadToClient(leadId: string): Promise<{ client: Client; proposal: Proposal }> {
+    const lead = await this.getLead(leadId);
+    if (!lead) throw new Error("Lead not found");
+
+    // Create client from lead
+    const client = await this.createClient({
+      fullName: `${lead.firstName} ${lead.lastName}`,
+      email: lead.email,
+      phone: lead.phone,
+      notes: lead.notes,
+    });
+
+    // Create proposal from lead
+    const proposal = await this.createProposal({
+      clientId: client.id,
+      title: `Event Proposal - ${lead.firstName} ${lead.lastName}`,
+      description: lead.notes || "Auto-generated from lead registration",
+      amount: "0", // Default amount - needs to be updated
+      status: "unviewed",
+    });
+
+    // Update lead status to converted
+    await this.updateLead(leadId, { status: "converted" });
+
+    return { client, proposal };
+  }
+
+  // Staff Applications
+  async getAllStaffApplications(): Promise<StaffApplication[]> {
+    return db.select().from(schema.staffApplications).orderBy(desc(schema.staffApplications.createdAt));
+  }
+
+  async getStaffApplication(id: string): Promise<StaffApplication | undefined> {
+    const [application] = await db.select().from(schema.staffApplications).where(eq(schema.staffApplications.id, id));
+    return application;
+  }
+
+  async createStaffApplication(application: InsertStaffApplication): Promise<StaffApplication> {
+    const [result] = await db.insert(schema.staffApplications).values(application).returning();
+    return result;
+  }
+
+  async updateStaffApplication(id: string, status: "pending" | "approved" | "rejected"): Promise<StaffApplication | undefined> {
+    const [application] = await db.update(schema.staffApplications).set({ status }).where(eq(schema.staffApplications.id, id)).returning();
+    return application;
+  }
+
+  async approveStaffApplication(id: string): Promise<{ application: StaffApplication; staff: Staff; user: User; temporaryPassword: string }> {
+    const application = await this.getStaffApplication(id);
+    if (!application) throw new Error("Staff application not found");
+
+    // Generate secure random temporary password (16 characters)
+    const temporaryPassword = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+      .substring(0, 16);
+
+    // Create user account for staff
+    const user = await this.createUser({
+      username: application.email.split("@")[0],
+      email: application.email,
+      password: temporaryPassword, // Will be hashed by createUser - admin must send this via email
+      fullName: `${application.firstName} ${application.lastName}`,
+      role: "staff",
+    });
+
+    // Create staff profile
+    const staff = await this.createStaff({
+      userId: user.id,
+      bio: application.experience,
+      skills: [],
+      isActive: true,
+    });
+
+    // Update application status
+    const updatedApplication = await this.updateStaffApplication(id, "approved");
+    if (!updatedApplication) throw new Error("Failed to update application status");
+
+    return { application: updatedApplication, staff, user, temporaryPassword };
+  }
+
+  async rejectStaffApplication(id: string): Promise<StaffApplication | undefined> {
+    return this.updateStaffApplication(id, "rejected");
   }
 
   // Dashboard Stats
