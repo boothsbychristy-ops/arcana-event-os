@@ -220,18 +220,54 @@ export const privacySettings = pgTable("privacy_settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-// Tasks for Kanban board
+// Boards for Kanban project management
+export const boards = pgTable("boards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isPublic: boolean("is_public").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Board groups (columns) for Kanban organization
+export const boardGroups = pgTable("board_groups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").references(() => boards.id, { onDelete: "cascade" }).notNull(),
+  title: text("title").notNull(),
+  sortIndex: integer("sort_index").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Task statuses (configurable colored labels per board)
+export const taskStatuses = pgTable("task_statuses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").references(() => boards.id, { onDelete: "cascade" }).notNull(),
+  label: text("label").notNull(),
+  color: text("color").notNull(), // hex color or CSS token
+  sortIndex: integer("sort_index").notNull().default(0),
+});
+
+// Tasks for Kanban board - enhanced to support both booking tasks and board tasks
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").references(() => boards.id, { onDelete: "cascade" }),
+  groupId: varchar("group_id").references(() => boardGroups.id, { onDelete: "cascade" }),
   bookingId: varchar("booking_id").references(() => bookings.id),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   description: text("description"),
   status: text("status").notNull().default("todo"), // todo, in_progress, review, done
-  priority: text("priority").notNull().default("medium"), // low, medium, high
+  priority: text("priority").notNull().default("medium"), // low, medium, high, urgent
   assignedTo: varchar("assigned_to").references(() => staff.id),
-  dueDate: timestamp("due_date"),
+  dueAt: timestamp("due_at"),
+  linkedClientId: varchar("linked_client_id").references(() => clients.id),
+  linkedBookingId: varchar("linked_booking_id").references(() => bookings.id),
+  meta: jsonb("meta").default({}),
+  sortIndex: integer("sort_index").notNull().default(0),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 // Message threads
@@ -304,7 +340,10 @@ export const insertBookingQuestionSchema = createInsertSchema(bookingQuestions).
 export const insertBookingResponseSchema = createInsertSchema(bookingResponses).omit({ id: true, createdAt: true });
 export const insertUnavailableNoticeSchema = createInsertSchema(unavailableNotices).omit({ id: true, createdAt: true });
 export const insertPrivacySettingsSchema = createInsertSchema(privacySettings).omit({ id: true, updatedAt: true });
-export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, completedAt: true });
+export const insertBoardSchema = createInsertSchema(boards).omit({ id: true, createdAt: true });
+export const insertBoardGroupSchema = createInsertSchema(boardGroups).omit({ id: true, createdAt: true });
+export const insertTaskStatusSchema = createInsertSchema(taskStatuses).omit({ id: true });
+export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true, completedAt: true });
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
 export const insertDeliverableSchema = createInsertSchema(deliverables).omit({ id: true, createdAt: true });
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true }).extend({
@@ -363,6 +402,15 @@ export type InsertUnavailableNotice = z.infer<typeof insertUnavailableNoticeSche
 
 export type PrivacySettings = typeof privacySettings.$inferSelect;
 export type InsertPrivacySettings = z.infer<typeof insertPrivacySettingsSchema>;
+
+export type Board = typeof boards.$inferSelect;
+export type InsertBoard = z.infer<typeof insertBoardSchema>;
+
+export type BoardGroup = typeof boardGroups.$inferSelect;
+export type InsertBoardGroup = z.infer<typeof insertBoardGroupSchema>;
+
+export type TaskStatus = typeof taskStatuses.$inferSelect;
+export type InsertTaskStatus = z.infer<typeof insertTaskStatusSchema>;
 
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = z.infer<typeof insertTaskSchema>;
