@@ -81,7 +81,15 @@ export default function AnalyticsPage() {
       to: dateRange.to.toISOString(),
     });
     
-    const response = await fetch(`/api/analytics/export?${params}`);
+    const response = await fetch(`/api/analytics/export?${params}`, {
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      console.error('Export failed:', response.statusText);
+      return;
+    }
+    
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
