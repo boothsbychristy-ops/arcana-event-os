@@ -15,15 +15,27 @@ The platform enables event businesses to manage the complete customer lifecycleâ
 - Visual task organization with status-based color coding
 - Real-time task movement across board groups with position persistence
 - Responsive Kanban UI with horizontal scrolling for multiple columns
+- **Rich Task Features:**
+  - Task detail drawer with tabbed interface (Overview, Comments, Attachments, Subtasks, Activity)
+  - Comments system with CRUD operations and user attribution
+  - Subtasks with checkbox completion tracking
+  - Activity log automatically tracking all task changes
+  - Task assignment to team members (staff, admin, owner roles)
+  - Due date picker with calendar interface (prevents past dates)
+  - Task description editor
 
 **Technical Implementation:**
 - Added `boards`, `board_groups`, `task_statuses` tables with varchar UUID primary keys
-- Enhanced `tasks` table with board fields: `board_id`, `group_id`, `sort_index`, `linked_client_id`, `linked_booking_id`
+- Enhanced `tasks` table with board fields: `board_id`, `group_id`, `sort_index`, `linked_client_id`, `linked_booking_id`, `assigned_to`, `due_at`
+- Added rich task feature tables: `task_comments`, `task_attachments`, `subtasks`, `task_activity`, `board_members`
 - Integrated @dnd-kit library (@dnd-kit/core, sortable, modifiers, utilities) for drag & drop
 - Implemented complete CRUD API: `/api/boards`, `/api/boards/:id/groups`, `/api/tasks/:id/move`
+- Rich task APIs: `/api/tasks/:taskId/comments`, `/api/tasks/:taskId/subtasks`, `/api/tasks/:taskId/activity`
 - Created BoardsPage (list view) and BoardView (Kanban board) components
 - Built GroupColumn and TaskCard components with dnd-kit SortableContext
-- Developed StatusPill component for visual status indicators
+- Developed TaskDetailDrawer component with Tabs for organizing task content
+- Added `/api/users/assignable` endpoint to fetch users for task assignment
+- Integrated date-fns for date formatting and react-day-picker for calendar UI
 
 **Bug Fixes:**
 - Fixed board persistence after page reload by adding `enabled: !!user` to boards query (auth dependency)
