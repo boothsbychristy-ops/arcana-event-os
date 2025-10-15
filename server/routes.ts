@@ -1,6 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { db } from "./db";
+import { eq, or } from "drizzle-orm";
+import { users as usersTable } from "@shared/schema";
 import { z } from "zod";
 import {
   insertClientSchema,
@@ -944,6 +947,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: error.errors });
       }
       res.status(500).json({ error: "Failed to create status" });
+    }
+  });
+
+  // Assignable Users (for task assignment)
+  app.get("/api/users/assignable", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const users = await db.select({
+        id: usersTable.id,
+        fullName: usersTable.fullName,
+        email: usersTable.email,
+        role: usersTable.role,
+        avatarUrl: usersTable.avatarUrl,
+      })
+      .from(usersTable)
+      .where(
+        or(
+          eq(usersTable.role, "owner"),
+          eq(usersTable.role, "admin"),
+          eq(usersTable.role, "staff")
+        )
+      );
+      res.json(users);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch assignable users" });
     }
   });
 

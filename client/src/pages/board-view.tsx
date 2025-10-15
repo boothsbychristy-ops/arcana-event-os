@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -78,6 +79,10 @@ function SortableTaskCard({ task, onTaskClick }: { task: any; onTaskClick: (task
 function GroupColumn({ group, tasks, statuses, onTaskClick }: { group: any; tasks: any[]; statuses: any[]; onTaskClick: (taskId: string) => void }) {
   const [addTaskOpen, setAddTaskOpen] = useState(false);
   const { toast } = useToast();
+  
+  const { data: assignableUsers } = useQuery({
+    queryKey: ["/api/users/assignable"],
+  });
   
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema.omit({ boardId: true, groupId: true, ownerId: true, sortIndex: true })),
@@ -219,6 +224,33 @@ function GroupColumn({ group, tasks, statuses, onTaskClick }: { group: any; task
                             />
                           </PopoverContent>
                         </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="assignedTo"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Assign To (Optional)</FormLabel>
+                        <Select 
+                          onValueChange={field.onChange} 
+                          defaultValue={field.value || undefined}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-task-assignee">
+                              <SelectValue placeholder="Select a team member" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {assignableUsers?.map((user: any) => (
+                              <SelectItem key={user.id} value={user.id}>
+                                {user.fullName} ({user.role})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
