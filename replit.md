@@ -6,6 +6,31 @@ Project Rainbow CRM (Event OS) is a modern SaaS CRM and booking management platf
 
 The platform enables event businesses to manage the complete customer lifecycle—from lead generation and proposals through booking confirmation, staff assignment, payment processing, and event delivery. It provides tools for client relationship management, proposal creation, booking engine configuration, invoice generation, task management, and team collaboration.
 
+## Recent Changes
+
+### Sprint 5: Public Registration & Lead Management (October 2025) ✅
+**Completed Features:**
+- Public event registration form (`/register`) with multi-step wizard interface
+- Lead management system with admin dashboard (`/leads`)
+- Lead-to-client conversion workflow with automatic proposal generation
+- Staff self-application portal (`/staff-apply`) for recruitment
+- Staff approval system with temporary password generation
+- Honeypot spam protection on public endpoints
+
+**Technical Implementation:**
+- Added `leads` and `staff_applications` tables to database schema
+- Created public API endpoints: `/api/public/register` and `/api/public/staff-apply`
+- Implemented PATCH `/api/leads/:id` with action-based routing for conversion
+- Built approval workflow: POST `/api/staff-applications/:id/approve|reject`
+- Enhanced Zod schemas with date string coercion for form handling
+- Integrated bcrypt password hashing with cryptographically random 32-character temp passwords
+
+**Bug Fixes:**
+- Fixed PATCH handler to properly handle `{action: "convert"}` for lead conversion
+- Corrected honeypot field handling (excluded from main payload, sent as separate field)
+- Fixed date validation to accept ISO strings and coerce to Date objects
+- Resolved authentication issues with apiRequest helper for Bearer token handling
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -31,10 +56,12 @@ Preferred communication style: Simple, everyday language.
 - Custom CSS variables for theme consistency across light/dark modes
 
 **Component Architecture:**
-- Page-level components in `client/src/pages/` for major application views (Dashboard, Clients, Staff, Bookings, Proposals, Invoices, Tasks, Messages)
+- Page-level components in `client/src/pages/` for major application views (Dashboard, Clients, Staff, Bookings, Proposals, Invoices, Tasks, Messages, Leads, Staff Applications)
+- Public-facing pages without authentication (Register, Login, Staff Apply)
 - Reusable UI components from shadcn/ui in `client/src/components/ui/`
 - Application-level components like `AppSidebar` for navigation structure
 - Form handling with React Hook Form and Zod validation
+- Multi-step form wizards with stepper components for complex workflows
 - Custom hooks for mobile responsiveness and toast notifications
 
 **State Management Pattern:**
@@ -54,9 +81,12 @@ Preferred communication style: Simple, everyday language.
 
 **API Design:**
 - RESTful endpoint structure under `/api` prefix
-- Resource-based routing (clients, staff, proposals, bookings, invoices, payments, tasks, messages)
+- Resource-based routing (clients, staff, proposals, bookings, invoices, payments, tasks, messages, leads, staff-applications)
+- Public endpoints under `/api/public` for registration and staff applications
 - Dashboard-specific aggregation endpoints for stats and charts
+- Special action endpoints for workflows (lead conversion, staff approval/rejection)
 - Type-safe request/response handling using shared Zod schemas
+- Honeypot spam protection on public endpoints
 
 **Storage Layer:**
 - Storage abstraction pattern with `IStorage` interface defining all data operations
@@ -68,6 +98,8 @@ Preferred communication style: Simple, everyday language.
 - Multi-tenant architecture with `owner_id` foreign keys linking resources to account owners
 - Role-based access control with user roles (owner, admin, staff, client)
 - Comprehensive event management schema covering the full booking lifecycle:
+  - **Lead Management** - Captures event registrations with status tracking (new, qualified, converted, archived)
+  - **Staff Applications** - Public recruitment portal with approval workflow (pending, approved, rejected)
   - Client management with referral tracking
   - Staff profiles with skills and availability
   - Proposals with status tracking (unviewed, viewed, expired, accepted)
@@ -77,6 +109,7 @@ Preferred communication style: Simple, everyday language.
   - Internal and client-facing messaging systems
 - Settings tables for payment processors, booking engine configuration, privacy controls, and payment plans
 - JSONB fields for flexible metadata storage where schema flexibility is needed
+- Automatic password generation with bcrypt hashing for staff approvals
 
 **Middleware & Error Handling:**
 - Request/response logging middleware with timing information
