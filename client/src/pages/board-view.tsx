@@ -112,7 +112,7 @@ function GroupColumn({ group, tasks, statuses }: { group: any; tasks: any[]; sta
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <div className="flex-1">
             <CardTitle className="text-base" data-testid={`text-group-name-${group.id}`}>
-              {group.name}
+              {group.title}
             </CardTitle>
             <Badge variant="secondary" className="mt-1">{tasks.length}</Badge>
           </div>

@@ -15,14 +15,17 @@ import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function Boards() {
   const [, setLocation] = useLocation();
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const { data: boards, isLoading } = useQuery({
     queryKey: ["/api/boards"],
+    enabled: !!user,
   });
 
   const form = useForm<InsertBoard>({
