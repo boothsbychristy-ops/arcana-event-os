@@ -23,6 +23,11 @@ import {
   insertBoardGroupSchema,
   insertTaskStatusSchema,
   insertTaskSchema,
+  insertTaskCommentSchema,
+  insertTaskAttachmentSchema,
+  insertSubtaskSchema,
+  insertTaskActivitySchema,
+  insertBoardMemberSchema,
   insertMessageSchema,
   insertDeliverableSchema,
   insertLeadSchema,
@@ -1015,6 +1020,217 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(task);
     } catch (error) {
       res.status(500).json({ error: "Failed to move task" });
+    }
+  });
+
+  // Task Comments
+  app.get("/api/tasks/:taskId/comments", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const comments = await storage.getTaskComments(req.params.taskId);
+      res.json(comments);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch comments" });
+    }
+  });
+
+  app.post("/api/tasks/:taskId/comments", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertTaskCommentSchema.parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
+      const comment = await storage.createTaskComment(data);
+      res.json(comment);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create comment" });
+    }
+  });
+
+  app.patch("/api/tasks/:taskId/comments/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertTaskCommentSchema.partial().parse(req.body);
+      const comment = await storage.updateTaskComment(req.params.id, data);
+      if (!comment) {
+        return res.status(404).json({ error: "Comment not found" });
+      }
+      res.json(comment);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update comment" });
+    }
+  });
+
+  app.delete("/api/tasks/:taskId/comments/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const deleted = await storage.deleteTaskComment(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Comment not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete comment" });
+    }
+  });
+
+  // Task Attachments
+  app.get("/api/tasks/:taskId/attachments", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const attachments = await storage.getTaskAttachments(req.params.taskId);
+      res.json(attachments);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch attachments" });
+    }
+  });
+
+  app.post("/api/tasks/:taskId/attachments", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertTaskAttachmentSchema.parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
+      const attachment = await storage.createTaskAttachment(data);
+      res.json(attachment);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create attachment" });
+    }
+  });
+
+  app.delete("/api/tasks/:taskId/attachments/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const deleted = await storage.deleteTaskAttachment(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Attachment not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete attachment" });
+    }
+  });
+
+  // Subtasks
+  app.get("/api/tasks/:taskId/subtasks", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const subtasks = await storage.getSubtasks(req.params.taskId);
+      res.json(subtasks);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch subtasks" });
+    }
+  });
+
+  app.post("/api/tasks/:taskId/subtasks", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertSubtaskSchema.parse({ ...req.body, taskId: req.params.taskId });
+      const subtask = await storage.createSubtask(data);
+      res.json(subtask);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create subtask" });
+    }
+  });
+
+  app.patch("/api/tasks/:taskId/subtasks/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertSubtaskSchema.partial().parse(req.body);
+      const subtask = await storage.updateSubtask(req.params.id, data);
+      if (!subtask) {
+        return res.status(404).json({ error: "Subtask not found" });
+      }
+      res.json(subtask);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update subtask" });
+    }
+  });
+
+  app.delete("/api/tasks/:taskId/subtasks/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const deleted = await storage.deleteSubtask(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Subtask not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete subtask" });
+    }
+  });
+
+  // Task Activity
+  app.get("/api/tasks/:taskId/activity", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const activity = await storage.getTaskActivity(req.params.taskId);
+      res.json(activity);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch activity" });
+    }
+  });
+
+  app.post("/api/tasks/:taskId/activity", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertTaskActivitySchema.parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
+      const activity = await storage.createTaskActivity(data);
+      res.json(activity);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create activity" });
+    }
+  });
+
+  // Board Members
+  app.get("/api/boards/:boardId/members", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const members = await storage.getBoardMembers(req.params.boardId);
+      res.json(members);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch board members" });
+    }
+  });
+
+  app.post("/api/boards/:boardId/members", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertBoardMemberSchema.parse({ ...req.body, boardId: req.params.boardId });
+      const member = await storage.addBoardMember(data);
+      res.json(member);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to add member" });
+    }
+  });
+
+  app.patch("/api/boards/:boardId/members/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertBoardMemberSchema.partial().parse(req.body);
+      const member = await storage.updateBoardMember(req.params.id, data);
+      if (!member) {
+        return res.status(404).json({ error: "Member not found" });
+      }
+      res.json(member);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update member" });
+    }
+  });
+
+  app.delete("/api/boards/:boardId/members/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const deleted = await storage.removeBoardMember(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Member not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to remove member" });
     }
   });
 
