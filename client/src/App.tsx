@@ -8,6 +8,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
+import Register from "@/pages/register";
 import Dashboard from "@/pages/dashboard";
 import Clients from "@/pages/clients";
 import Staff from "@/pages/staff";
@@ -45,6 +46,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/register" component={Register} />
       <Route path="/">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/clients">{() => <ProtectedRoute component={Clients} />}</Route>
       <Route path="/staff">{() => <ProtectedRoute component={Staff} />}</Route>
@@ -65,8 +67,9 @@ function AppLayout() {
   const { user, logout } = useAuth();
   const [location] = useLocation();
 
-  // Show login page without sidebar
-  if (location === "/login") {
+  // Show public pages without sidebar
+  const publicPages = ["/login", "/register", "/staff-apply"];
+  if (publicPages.includes(location)) {
     return <Router />;
   }
 
