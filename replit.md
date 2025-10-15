@@ -120,6 +120,9 @@ Preferred communication style: Simple, everyday language.
 ### Session Management
 - **connect-pg-simple**: PostgreSQL session store.
 
+### Automation & Scheduling
+- **node-cron**: Task scheduler for time-based automations.
+
 ### UI Utilities
 - **cmdk**: Command palette.
 - **embla-carousel-react**: Carousel/slider.
@@ -133,3 +136,43 @@ Preferred communication style: Simple, everyday language.
 - **@replit/vite-plugin-runtime-error-modal**: Dev error overlay.
 - **@replit/vite-plugin-cartographer**: Replit-specific dev tooling.
 - **@replit/vite-plugin-dev-banner**: Dev environment indicator.
+
+## Recent Changes (Sprint 8)
+
+### Automations & Agents Framework (October 2025)
+
+**Backend Implementation:**
+- Added `automations` and `automation_logs` tables to database schema with support for trigger events, conditions, and configurable actions.
+- Created modular agent system with registry pattern (`server/agents/registry.ts`) for pluggable action handlers.
+- Implemented automation execution engine (`server/agents/engine.ts`) with comprehensive error handling and logging.
+- Built scheduler system (`server/agents/scheduler.ts`) using node-cron for time-based automation triggers (hourly checks for overdue tasks).
+- Integrated automation triggers into task creation and status change workflows for immediate event-based execution.
+
+**Available Actions:**
+- `send_notification`: Send notifications to users with custom messages
+- `update_status`: Automatically update task status based on conditions
+- `create_subtasks`: Generate subtasks from templates when conditions are met
+
+**Trigger Events:**
+- `task.created`: Fires immediately when new tasks are created
+- `task.status_changed`: Fires when task status is updated
+- `task.assigned`: Fires when tasks are assigned to users
+- `task.overdue`: Fires hourly for overdue tasks via cron scheduler
+
+**API Endpoints:**
+- CRUD operations for automations (`/api/automations`)
+- Toggle automation enable/disable (`/api/automations/:id/toggle`)
+- Manual automation execution (`/api/automations/:id/run`)
+- Execution log retrieval (`/api/automations/logs`)
+
+**Frontend Implementation:**
+- Created AutomationsPage (`client/src/pages/automations.tsx`) with comprehensive UI for managing automations.
+- Features include: table view of all automations, creation modal with form validation, toggle switches for enable/disable, logs drawer for execution history, and manual run/delete actions.
+- Integrated into sidebar navigation under "Manage" section with Zap icon.
+- Full support for JSON configuration of conditions and actions with validation.
+
+**Architecture:**
+- Agent registry pattern allows easy addition of new action types.
+- Separation of immediate triggers (event-based) and scheduled triggers (cron-based).
+- Comprehensive logging system tracks all automation executions with success/failure status and error details.
+- Multi-tenant support with owner-based automation isolation.
