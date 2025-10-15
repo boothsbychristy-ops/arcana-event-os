@@ -307,7 +307,9 @@ export const insertPrivacySettingsSchema = createInsertSchema(privacySettings).o
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, completedAt: true });
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
 export const insertDeliverableSchema = createInsertSchema(deliverables).omit({ id: true, createdAt: true });
-export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true });
+export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, createdAt: true }).extend({
+  eventDate: z.string().nullable().optional().transform(val => val ? new Date(val) : null),
+});
 export const insertStaffApplicationSchema = createInsertSchema(staffApplications).omit({ id: true, createdAt: true });
 
 // TypeScript types

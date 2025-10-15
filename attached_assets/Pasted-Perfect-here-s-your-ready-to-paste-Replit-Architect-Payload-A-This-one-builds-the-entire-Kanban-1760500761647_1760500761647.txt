@@ -1,0 +1,162 @@
+Perfect — here’s your ready-to-paste Replit Architect Payload A 🧱
+This one builds the entire Kanban Core (boards, groups, tasks, drag-and-drop UI, and status pills) using your existing Neon Glass / Tailwind aesthetic and JWT-secured routes.
+
+Copy everything between the divider lines and paste it directly into Replit’s “Build with AI” or Architect/Agent box.
+
+⸻
+
+🧩 Payload A — Rainbow CRM Kanban Core
+
+Create a new Sprint called "Kanban Core (Payload A)" for the Rainbow CRM project.
+
+🎯 GOAL
+Add Monday.com-style project/task management foundation:
+- Boards, Groups (columns), and Tasks with drag-and-drop cards
+- Status color pills
+- Secure CRUD APIs
+- Frontend Kanban UI built with dnd-kit + Tailwind + shadcn UI
+- Works for both client-linked and internal boards
+
+---
+
+🧠 DATABASE MIGRATIONS
+Add these new tables:
+```sql
+create table if not exists boards (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  description text,
+  is_public boolean default false,
+  created_at timestamptz default now()
+);
+
+create table if not exists board_groups (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid references boards(id) on delete cascade,
+  title text not null,
+  sort_index int default 0
+);
+
+create table if not exists tasks (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid references boards(id) on delete cascade,
+  group_id uuid references board_groups(id) on delete cascade,
+  owner_id uuid references users(id) on delete set null,
+  title text not null,
+  description text,
+  status text default 'todo',
+  priority text,
+  due_at timestamptz,
+  linked_client_id uuid references clients(id),
+  linked_booking_id uuid references bookings(id),
+  meta jsonb default '{}'::jsonb,
+  sort_index int default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists task_statuses (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid references boards(id) on delete cascade,
+  label text not null,
+  color text not null,
+  sort_index int default 0
+);
+
+
+⸻
+
+⚙️ SERVER ENDPOINTS
+Add a new /server/routes/boards.js with these APIs:
+
+Boards
+	•	GET /api/boards → list boards for logged-in owner
+	•	POST /api/boards → create new board { name, description }
+	•	GET /api/boards/:id → fetch board details with groups, tasks, statuses
+
+Groups
+	•	POST /api/boards/:id/groups → create group { title }
+	•	PATCH /api/boards/:id/groups/:groupId → rename or reorder
+	•	DELETE /api/boards/:id/groups/:groupId
+
+Tasks
+	•	POST /api/tasks → create new task { board_id, group_id, title, description, status, priority, due_at, linked_client_id, linked_booking_id }
+	•	PATCH /api/tasks/:id → update task fields
+	•	POST /api/tasks/:id/move → move card between groups { to_group_id, to_index }
+	•	PATCH /api/tasks/:id/sort → reorder tasks in same group { order: [taskIds...] }
+	•	GET /api/tasks/:id → fetch single task
+
+Statuses
+	•	POST /api/boards/:id/statuses → create new status label { label, color }
+	•	PATCH /api/boards/:id/statuses/:statusId → edit label/color
+	•	DELETE /api/boards/:id/statuses/:statusId
+
+All endpoints require JWT auth. Validate ownerId for board-level access.
+
+⸻
+
+🎨 FRONTEND COMPONENTS
+	1.	Add page /client/src/pages/BoardsPage.jsx
+	•	Lists all boards with “Create Board” modal
+	•	Each board links to /boards/:id
+	2.	Add page /client/src/pages/BoardView.jsx
+	•	Fetches board by ID and renders groups and tasks
+	•	Uses <KanbanBoard /> component (below)
+	•	Includes “Add Column” and “Add Task” buttons
+	3.	Create folder /client/src/components/KanbanBoard/
+	•	Board.jsx → DnD context setup using dnd-kit
+	•	GroupColumn.jsx → Column header, tasks list, add task button
+	•	TaskCard.jsx → Small card with title, status pill, and due date
+	•	StatusPill.jsx → Clickable colored label using shadcn badge
+	4.	Use Tailwind classes and shadcn styling for:
+	•	Rounded-2xl cards
+	•	Rainbow gradient highlights (fuchsia → rose → amber)
+	•	Soft shadows and hover lift
+	•	Scrollable horizontal board layout
+	5.	Add toast feedback (success/error) for create/move/update.
+	6.	Add API hooks:
+	•	useBoards(), useBoard(id), useMoveTask(), useUpdateTask() inside /client/src/hooks/boards.js
+
+⸻
+
+🧱 LIBRARIES TO INSTALL
+
+npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/modifiers @dnd-kit/accessibility
+npm install framer-motion
+
+
+⸻
+
+✅ ACCEPTANCE CRITERIA
+	1.	User can create boards and groups.
+	2.	Board view shows columns with tasks.
+	3.	Dragging cards between columns updates backend via /api/tasks/:id/move.
+	4.	Reordering within a column persists.
+	5.	Status colors render accurately via task_statuses table.
+	6.	Works on mobile with horizontal scroll.
+	7.	Secure JWT auth applied to all API routes.
+
+⸻
+
+🔐 SECURITY
+	•	Use middleware to ensure only board owner/admin can mutate boards/groups/tasks.
+	•	Validate all IDs with uuid and reject invalid payloads.
+	•	Sanitize title, description to prevent XSS.
+
+⸻
+
+📜 LICENSE NOTE
+All libraries used (dnd-kit, framer-motion) are MIT licensed — no open-source inheritance risk for proprietary deployment.
+
+⸻
+
+Once implemented, report completion as:
+“Kanban Core ready — boards, groups, tasks, drag/drop, and status pills functional.”
+
+---
+
+✅ **Next Step After It Finishes:**  
+When Replit confirms the Kanban Core (Payload A) is complete and tested, we’ll deploy **Payload B (Task Detail, Comments, Attachments, and Subtasks)** to bring in modal collaboration features.
+
+Would you like me to prepare **Payload B’s full Replit Builder prompt** right now so you can paste it the moment Payload A passes testing?

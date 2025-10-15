@@ -1,0 +1,52 @@
+🔥 Perfect timing — since Payload A (Kanban Core) is now live or compiling cleanly, the next logical move is to expand functionality around each task (the part that makes Monday-style workflows powerful).
+
+Here’s how your roadmap continues from this point:
+
+⸻
+
+🧭 Immediate Next Step — Payload B: Task Detail + Collaboration Layer
+
+Goal: Give every task its own modal with:
+	•	description & rich notes
+	•	subtasks / checklists
+	•	file uploads
+	•	comments (updates feed)
+	•	activity log
+
+This makes Rainbow CRM feel alive — users can click a card, open a modal, comment, attach media, and track sub-progress, just like Monday.com’s “Updates” + “Subitems”.
+
+When to run: As soon as Replit finishes building & testing Payload A.
+Result: Board stays the same visually, but clicking any card now opens a detail modal.
+
+⸻
+
+🧱 After That — the Broader Arc
+
+Sprint	Name	Focus	Outcome
+6 (B)	Task Detail & Collaboration	Subtasks, comments, attachments, activity	Adds team comms + file sharing
+7 (C)	Calendar + Scheduling	FullCalendar view, drag-reschedule	Adds time visibility & workload view
+8	Automations & Agents	“When X → Do Y” triggers	Starts Empress Agents framework
+9	Analytics & Reports	KPI dashboards, CSV export	Turns data → insight
+10	Branding & White-Label	Theme editor, multi-brand portal	Preps resale + subdomain support
+
+That sequence completes your Monday-grade project center and positions Rainbow CRM for resale and automation.
+
+⸻
+
+⚙️ What Happens in Payload B
+
+When you give me the word, I’ll drop a Replit-ready Builder Prompt that:
+	1.	Adds subtasks, task_comments, task_attachments, and task_activity tables.
+	2.	Creates routes for commenting, uploading, and logging activity.
+	3.	Builds a TaskModal component with:
+	•	Left: description, attachments, subtasks
+	•	Right: assignee, due date, linked client/booking
+	•	Bottom: comment feed + composer
+	4.	Handles optimistic updates + upload progress.
+	5.	Maintains Rainbow’s pink-amber aesthetic and motion polish.
+
+⸻
+
+🚀 Your Choice Now
+
+Would you like me to paste the full Payload B (Task Detail + Collaboration) builder prompt next — ready for direct submission to Replit?

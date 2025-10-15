@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Check, X } from "lucide-react";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 
 interface StaffApplication {
   id: string;
@@ -71,21 +71,10 @@ export default function StaffApplications() {
 
   const approveMutation = useMutation({
     mutationFn: async (applicationId: string) => {
-      const response = await fetch(
-        `/api/staff-applications/${applicationId}/approve`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
+      const response = await apiRequest(
+        "POST",
+        `/api/staff-applications/${applicationId}/approve`
       );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Approval failed");
-      }
-
       return response.json() as Promise<ApprovalResponse>;
     },
     onSuccess: (data) => {
@@ -112,21 +101,10 @@ export default function StaffApplications() {
 
   const rejectMutation = useMutation({
     mutationFn: async (applicationId: string) => {
-      const response = await fetch(
-        `/api/staff-applications/${applicationId}/reject`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
+      const response = await apiRequest(
+        "POST",
+        `/api/staff-applications/${applicationId}/reject`
       );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Rejection failed");
-      }
-
       return response.json();
     },
     onSuccess: () => {

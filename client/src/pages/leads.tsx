@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { Search, UserPlus, Calendar } from "lucide-react";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 
 interface Lead {
   id: string;
@@ -46,19 +46,11 @@ export default function Leads() {
 
   const convertMutation = useMutation({
     mutationFn: async (leadId: string) => {
-      const response = await fetch(`/api/leads/${leadId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "convert" }),
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Conversion failed");
-      }
-      
+      const response = await apiRequest(
+        "PATCH",
+        `/api/leads/${leadId}`,
+        { action: "convert" }
+      );
       return response.json();
     },
     onSuccess: () => {

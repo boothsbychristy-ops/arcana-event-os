@@ -1,0 +1,300 @@
+Nice — let’s turn that research into actionable Replit payloads. Below are three sequential, copy-paste-ready builder prompts you can drop into Replit (one at a time). They implement a Monday-like Project & Task Manager for Rainbow CRM: Kanban core, task detail & collaboration, and multi-view + client/booking linking + permissions.
+
+Each payload includes:
+	•	DB migration SQL
+	•	Server routes to add
+	•	Client pages/components to add
+	•	Libraries to install
+	•	Acceptance criteria and deliverables
+	•	Licensing note for the libraries used
+
+Start with Payload A (core Kanban + task model + drag/drop). When Replit finishes A, drop B, then C.
+
+⸻
+
+📦 Payload A — Kanban Core (Task & Board model + drag & drop)
+
+Goal: Add Boards, Groups (columns), Tasks, and a drag-and-drop Kanban board UI that updates task status/column server-side. Use dnd-kit (or hello-pangea/dnd) and a React Kanban pattern styled with Tailwind/shadcn.
+
+Install (server/client)
+
+Run in server or project root:
+
+# drag & drop toolkit + calendar later, plus helper libs
+npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/modifiers
+npm install @dnd-kit/accessibility
+# or hello-pangea alternative:
+# npm install @hello-pangea/dnd
+
+# UI animation helper
+npm install framer-motion
+
+# if you want a prebuilt Kanban (optional)
+# npm install @rcdexta/react-trello   # MIT
+
+DB migration (append to migrations)
+
+-- boards + groups + tasks + task_statuses for configurable colored labels
+create table if not exists boards (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  description text,
+  is_public boolean default false,
+  created_at timestamptz default now()
+);
+
+create table if not exists board_groups (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid references boards(id) on delete cascade,
+  title text not null,
+  sort_index int default 0
+);
+
+create table if not exists tasks (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid references boards(id) on delete cascade,
+  group_id uuid references board_groups(id) on delete cascade,
+  owner_id uuid references users(id) on delete set null,
+  title text not null,
+  description text,
+  status text default 'todo',
+  priority text,
+  due_at timestamptz,
+  linked_client_id uuid references clients(id),
+  linked_booking_id uuid references bookings(id),
+  meta jsonb default '{}'::jsonb,
+  sort_index int default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists task_statuses (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid references boards(id) on delete cascade,
+  label text not null,
+  color text not null, -- hex or token
+  sort_index int default 0
+);
+
+Server routes (new file /server/routes/boards.js)
+	•	GET /api/boards — list boards for owner
+	•	POST /api/boards — create board (name, description)
+	•	GET /api/boards/:id — board details + groups + tasks + statuses
+	•	POST /api/boards/:id/groups — create group
+	•	PATCH /api/boards/:id/groups/:groupId — reorder/rename
+	•	DELETE /api/boards/:id/groups/:groupId
+	•	POST /api/boards/:id/statuses — create status option
+	•	PATCH /api/tasks — create task
+	•	PATCH /api/tasks/:id — update task fields (title, description, due_at, linked ids)
+	•	POST /api/tasks/:id/move — body { to_group_id, to_index } — moves task server side: update group_id and sort_index
+	•	PATCH /api/tasks/:id/sort — reorder within group (bulk)
+	•	GET /api/tasks/:id — detail (used by modal)
+
+Important: validate ownerId from JWT middleware; ensure board belongs to owner.
+
+Client — pages & components
+
+Files to add:
+	•	/client/src/pages/BoardsPage.jsx — lists boards and “Create Board” CTA.
+	•	/client/src/pages/BoardView.jsx — main Kanban board. Fetch GET /api/boards/:id.
+	•	/client/src/components/KanbanBoard/*:
+	•	Board.jsx — renders groups as columns.
+	•	GroupColumn.jsx — renders column header, add card button, and sortable list of TaskCard.
+	•	TaskCard.jsx — compact card showing title, assignee avatar, status pill, due date.
+	•	TaskDragLayer / DnD context — using dnd-kit sortable utilities.
+	•	/client/src/components/StatusPill.jsx — colored pill that reflects task.status.
+	•	Use framer-motion for subtle drag animations.
+
+Behavior
+	•	Dragging a card to another column calls POST /api/tasks/:id/move with to_group_id and target index; on success update UI.
+	•	Reordering in same column calls PATCH /api/tasks/:id/sort or bulk patch.
+	•	Click a card → open Task Detail Modal (Payload B will implement full modal).
+
+Acceptance Criteria (A)
+	1.	Can create boards and groups.
+	2.	Board view loads groups and tasks with correct order.
+	3.	Dragging card between columns updates DB and persists after reload.
+	4.	Reordering within a column updates DB and persists.
+	5.	Status pill color reflects task.status mapping from task_statuses.
+	6.	Board page is responsive (<768px stacks columns vertically or supports horizontal scroll).
+
+Deliverables
+	•	migrations added, boards.js routes implemented, front-end Board view with dnd-kit drag & drop, status pill component, basic create/edit task flows.
+
+Licensing note
+	•	dnd-kit, framer-motion, and the suggested Kanban libraries are MIT — safe for closed-source commercial use. If you opt for a commercial Kanban component later, you can license it without needing to open-source your code.
+
+⸻
+
+📦 Payload B — Task Detail, Comments, Attachments, Subtasks
+
+Goal: Implement Task Detail modal with rich fields, comments/updates, file attachments (uploads), subtasks (subitems), checklist, and activity log.
+
+Install
+
+npm install react-dropzone multer
+# if you prefer S3 or object storage SDKs later: aws-sdk or @google-cloud/storage
+
+DB migration (append)
+
+create table if not exists subtasks (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid references tasks(id) on delete cascade,
+  title text not null,
+  is_done boolean default false,
+  sort_index int default 0,
+  created_at timestamptz default now()
+);
+
+create table if not exists task_comments (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid references tasks(id) on delete cascade,
+  author_user_id uuid references users(id) on delete set null,
+  body text not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists task_attachments (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid references tasks(id) on delete cascade,
+  uploader_id uuid references users(id) on delete set null,
+  filename text,
+  url text not null,
+  size int,
+  mime text,
+  created_at timestamptz default now()
+);
+
+create table if not exists task_activity (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid references tasks(id) on delete cascade,
+  actor_user_id uuid references users(id) on delete set null,
+  action text not null,
+  payload jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+Server routes (new /server/routes/tasks.js or extend)
+	•	GET /api/tasks/:id — returns task + subtasks + comments + attachments + activity
+	•	POST /api/tasks/:id/subtasks — create subtask
+	•	PATCH /api/subtasks/:id — toggle is_done / edit title
+	•	DELETE /api/subtasks/:id
+	•	POST /api/tasks/:id/comments — body {body} — insert comment + create activity log
+	•	GET /api/tasks/:id/comments
+	•	POST /api/tasks/:id/attachments — multipart upload via multer (server stores locally or to object store based on config). Return URL.
+	•	DELETE /api/tasks/:id/attachments/:attachmentId
+	•	GET /api/tasks/:id/activity — list activity entries
+
+Uploads: Implement server-side validation (max file size, allowed mime types). Return structured URL and store uploader id.
+
+Client — Task Modal & Components
+
+Files:
+	•	/client/src/components/TaskModal/TaskModal.jsx — full detail modal
+	•	Sections: Header (title, status dropdown), Left column (description, attachments, subtasks), Right column (assignees, due date, linked client/booking, meta), Bottom: Comments feed + composer.
+	•	/client/src/components/Comments/CommentsList.jsx and CommentItem.jsx — show author, timestamp, body, attachments (inline link).
+	•	/client/src/components/Attachments/AttachmentUploader.jsx — dropzone UI + preview + upload status.
+	•	/client/src/components/Subtasks/SubtaskList.jsx — inline checklist with drag reorder support (optional).
+	•	Hook into task_activity to show “X changed status to Y” entries.
+
+Behavior
+	•	Posting a comment updates UI optimistically and persists; server writes activity log.
+	•	Uploading files shows progress, then attaches link in comments or attachments section.
+	•	Subtasks persist and can be marked done — optionally compute percentage complete for parent task meta.
+
+Acceptance Criteria (B)
+	1.	Clicking a task card opens Task Modal with full data.
+	2.	Create comment → persists and appears in CommentsList.
+	3.	Upload attachment → stored and visible; deletes remove record & file.
+	4.	Create subtasks and mark done → persists; percent complete shown.
+	5.	Activity log shows status changes, assignments, and comment posts.
+	6.	Modal is keyboard accessible and trap focus while open.
+
+Deliverables
+	•	Subtasks, comments, attachments DB/tables/routes; Task Modal UI; upload support; activity log.
+
+⸻
+
+📦 Payload C — Views, Filters, Client/Booking Linkages & Permissions
+
+Goal: Add multiple views (Calendar), filters, linking tasks to clients/bookings, team & role permissions, and board shareability (private vs shareable types). Also add quick bulk-actions and saved filters.
+
+Install
+
+npm install @fullcalendar/react @fullcalendar/daygrid @fullcalendar/interaction date-fns
+
+DB additions (append)
+
+create table if not exists teams (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  member_ids uuid[] default array[]::uuid[],
+  created_at timestamptz default now()
+);
+
+-- board visibility: already had is_public; add type
+alter table boards add column board_type text default 'main' check (board_type in ('main','private','shareable'));
+
+Server routes (extend)
+	•	GET /api/calendar/tasks?from=&to=&staff_id= — returns tasks with due_at (or scheduled meta) for FullCalendar.
+	•	PATCH /api/tasks/:id/dates — update due date or start/end for timeline/calendar.
+	•	GET /api/teams / POST /api/teams / PATCH /api/teams/:id — manage teams (member arrays).
+	•	POST /api/boards/:id/share — add guest email/invite (creates limited guest user in users table with viewer role and link to this board).
+	•	GET /api/boards/:id/permissions — returns who can view/edit (for UI).
+
+Permissions middleware
+	•	Expand auth middleware to check:
+	•	Owner/Admin can view/edit any Main/Private boards they own.
+	•	Staff with assigned tasks can edit tasks where they are assignee or team member.
+	•	Guests (shareable boards) can view and comment but cannot change board structure.
+	•	Implement canEditTask(user, task) helper.
+
+Client — new pages & features
+	•	/calendar page using FullCalendar: show tasks by due_at. Dragging an event opens confirm and calls PATCH /api/tasks/:id/dates.
+	•	Board header: visibility toggle (Main/Private/Shareable) + share button to generate guest invite link.
+	•	Filters in BoardView: assignee(s) dropdown, status chips, priority, date range, linked client filter (search).
+	•	Saved Filters: user can save filter sets (persist in localStorage or DB later). Add quick multi-select bulk actions: change status, assign staff, move to different group.
+	•	Team management UI: in Settings → Teams, create teams and choose members.
+	•	Client/Booking link in TaskModal: dropdown to link/unlink existing client or booking. If linked, show a mini-card with link to associated client/booking.
+
+Acceptance Criteria (C)
+	1.	Calendar shows tasks as events and drag/reschedule persists.
+	2.	Board filters return expected subset; saved filters can be used in current session.
+	3.	Team CRUD works; members show in assignee dropdown.
+	4.	Permission checks: Guests can view only shared boards; staff can edit only allowed tasks.
+	5.	Linking a task to a client or booking shows correct mini-card and clicking navigates to that client/booking page.
+	6.	Bulk actions work on selected cards (e.g., change status for 5 selected tasks).
+
+Deliverables
+	•	Calendar view with drag/reschedule, teams & permission model, board sharing (guest invites), filters & bulk actions, client/booking linking UI.
+
+⸻
+
+Notes on UX & Fidelity to Monday.com
+	•	Kanban behavior: dnd-kit + sortable utilities can be tuned to reproduce Monday’s smooth drag (animations, lift delay, collision, active drop preview). Use framer-motion for animations.
+	•	Status column & colors: store status list per board in task_statuses. Render pills with color tokens matching Empress theme. Admin can edit statuses per board.
+	•	Subitems: subtasks table implements Monday-style subitems. You might later implement rollups and aggregate progress bars.
+	•	Views parity: Kanban + Calendar complete the majority of Monday UX. Timeline/Gantt could be added later with a Gantt library if needed.
+
+Licensing summary
+	•	dnd-kit, @hello-pangea/dnd, framer-motion, FullCalendar, react-dropzone are MIT or permissive — safe for closed-source commercial use.
+	•	If you choose to use commercial components (Syncfusion, Smart UI), those are licensed and do not force your code to be open-sourced — but require purchasing a license.
+
+⸻
+
+How to run (developer checklist)
+	1.	Add migrations and run npm run db:migrate / Drizzle push.
+	2.	Start server: npm run dev (or existing dev scripts).
+	3.	Start client (npm run dev:client) and open Boards page → create a Board → add Groups → create Tasks → try dragging.
+	4.	Open Task modal → create comments → upload attachments.
+	5.	Open Calendar → verify tasks appear by due date → drag/reschedule.
+
+⸻
+
+Ready-to-paste Builder Prompt (short form)
+
+If you want, I can now assemble Payload A into a single pasteable “Architect” prompt for Replit that instructs it to add migrations, routes, and front-end files automatically. Tell me “Paste Payload A” and I’ll format it precisely for the Replit builder box. After Payload A is confirmed, I’ll output Payload B and C in the same ready-to-paste format.
+
+Do you want me to paste Payload A now?

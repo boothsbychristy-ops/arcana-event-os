@@ -59,20 +59,28 @@ export default function Register() {
       // In production, this would come from subdomain/booking page context
       const ownerId = "1977ed4d-c954-4b75-9cd0-ed9d98b1cb70";
 
+      // Exclude honeypot field from API payload
+      const { _company, ...apiData } = data;
+      
       const response = await fetch("/api/public/register", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          ...data,
+          ...apiData,
           ownerId,
-          eventDate: new Date(data.eventDate).toISOString(),
+          honeypot: _company, // Send honeypot with backend-expected name
         }),
       });
 
       if (!response.ok) {
         const error = await response.json();
+        // Handle Zod validation errors array
+        if (Array.isArray(error.error)) {
+          const errorMessages = error.error.map((e: any) => e.message).join(", ");
+          throw new Error(errorMessages || "Validation failed");
+        }
         throw new Error(error.error || "Registration failed");
       }
 

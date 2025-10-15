@@ -975,6 +975,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/leads/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      // Check if this is a conversion request
+      if (req.body.action === "convert") {
+        const result = await storage.convertLeadToClient(req.params.id);
+        return res.json(result);
+      }
+      
       const data = insertLeadSchema.partial().parse(req.body);
       const lead = await storage.updateLead(req.params.id, data);
       if (!lead) {
