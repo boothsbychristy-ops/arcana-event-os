@@ -1662,6 +1662,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Analytics routes
+  app.get("/api/analytics/summary", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+      const user = req.user!;
+      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      const staffId = user.role === 'staff' ? user.id : undefined;
+      
+      const summary = await storage.getAnalyticsSummary(from, to, ownerId, staffId);
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch analytics summary" });
+    }
+  });
+
+  app.get("/api/analytics/revenue-series", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const interval = (req.query.interval as 'day' | 'week' | 'month') || 'month';
+      const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+      const user = req.user!;
+      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      
+      const series = await storage.getRevenueSeries(interval, from, to, ownerId);
+      res.json(series);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch revenue series" });
+    }
+  });
+
+  app.get("/api/analytics/staff-performance", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+      const user = req.user!;
+      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      
+      const performance = await storage.getStaffPerformance(from, to, ownerId);
+      res.json(performance);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch staff performance" });
+    }
+  });
+
+  app.get("/api/analytics/status-distribution", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+      const user = req.user!;
+      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      
+      const distribution = await storage.getStatusDistribution(from, to, ownerId);
+      res.json(distribution);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch status distribution" });
+    }
+  });
+
+  app.get("/api/analytics/export", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const type = req.query.type as string || 'revenue';
+      const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+      const user = req.user!;
+      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      
+      if (type === 'revenue') {
+        const data = await storage.getRevenueSeries('day', from, to, ownerId);
+        const csv = 'Date,Revenue\n' + data.map(d => `${d.label},${d.value}`).join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="revenue-export.csv"');
+        res.send(csv);
+      } else if (type === 'staff') {
+        const data = await storage.getStaffPerformance(from, to, ownerId);
+        const csv = 'Staff Name,Bookings,Tasks Completed\n' + data.map(d => `${d.staffName},${d.bookingsCount},${d.tasksCompleted}`).join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="staff-performance.csv"');
+        res.send(csv);
+      } else if (type === 'tasks') {
+        const data = await storage.getStatusDistribution(from, to, ownerId);
+        const csv = 'Status,Count\n' + data.map(d => `${d.status},${d.count}`).join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="tasks-export.csv"');
+        res.send(csv);
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to export data" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

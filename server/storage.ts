@@ -1144,22 +1144,30 @@ export class DatabaseStorage implements IStorage {
     taskCompletion: number;
     staffUtilization: number;
   }> {
-    // Get bookings in date range
-    const bookingsQuery = db.select()
+    // Get bookings in date range (join with clients to filter by owner)
+    const bookingsWithClients = await db.select()
       .from(schema.bookings)
+      .innerJoin(schema.clients, eq(schema.bookings.clientId, schema.clients.id))
       .where(
         and(
-          eq(schema.bookings.ownerId, ownerId),
-          gte(schema.bookings.eventDate, from),
-          lte(schema.bookings.eventDate, to)
+          eq(schema.clients.ownerId, ownerId),
+          gte(schema.bookings.startTime, from),
+          lte(schema.bookings.startTime, to)
         )
       );
     
-    const bookings = await bookingsQuery;
-    const bookingCount = bookings.length;
+    const bookingCount = bookingsWithClients.length;
 
-    // Calculate revenue from bookings
-    const revenue = bookings.reduce((sum, booking) => sum + (booking.totalPrice || 0), 0);
+    // Calculate revenue from invoices for these bookings
+    const bookingIds = bookingsWithClients.map(b => b.bookings.id);
+    let revenue = 0;
+    if (bookingIds.length > 0) {
+      const invoices = await db.select()
+        .from(schema.invoices)
+        .where(or(...bookingIds.map(id => eq(schema.invoices.bookingId, id))));
+      revenue = invoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
+    }
+    
     const avgBookingValue = bookingCount > 0 ? revenue / bookingCount : 0;
 
     // Get leads in date range for conversion rate
@@ -1190,19 +1198,20 @@ export class DatabaseStorage implements IStorage {
     const taskCompletion = tasks.length > 0 ? (completedTasks / tasks.length) * 100 : 0;
 
     // Get staff utilization
-    const staffAssignments = await db.select()
-      .from(schema.bookingStaff)
-      .innerJoin(schema.bookings, eq(schema.bookingStaff.bookingId, schema.bookings.id))
-      .where(
-        and(
-          eq(schema.bookings.ownerId, ownerId),
-          gte(schema.bookings.eventDate, from),
-          lte(schema.bookings.eventDate, to)
-        )
-      );
+    const allStaffUsers = await db.select()
+      .from(schema.staff)
+      .innerJoin(schema.users, eq(schema.staff.userId, schema.users.id))
+      .where(eq(schema.users.ownerId, ownerId));
     
-    const allStaff = await db.select().from(schema.staff).where(eq(schema.staff.ownerId, ownerId));
-    const staffUtilization = allStaff.length > 0 ? (staffAssignments.length / allStaff.length) * 100 : 0;
+    const uniqueStaffAssigned = new Set();
+    for (const bwc of bookingsWithClients) {
+      const assignments = await db.select()
+        .from(schema.bookingStaff)
+        .where(eq(schema.bookingStaff.bookingId, bwc.bookings.id));
+      assignments.forEach(a => uniqueStaffAssigned.add(a.staffId));
+    }
+    
+    const staffUtilization = allStaffUsers.length > 0 ? (uniqueStaffAssigned.size / allStaffUsers.length) * 100 : 0;
 
     return {
       revenue,
@@ -1215,24 +1224,41 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRevenueSeries(interval: 'day' | 'week' | 'month', from: Date, to: Date, ownerId: string): Promise<Array<{ label: string; value: number }>> {
-    const bookings = await db.select()
+    const bookingsWithClients = await db.select()
       .from(schema.bookings)
+      .innerJoin(schema.clients, eq(schema.bookings.clientId, schema.clients.id))
       .where(
         and(
-          eq(schema.bookings.ownerId, ownerId),
-          gte(schema.bookings.eventDate, from),
-          lte(schema.bookings.eventDate, to)
+          eq(schema.clients.ownerId, ownerId),
+          gte(schema.bookings.startTime, from),
+          lte(schema.bookings.startTime, to)
         )
       )
-      .orderBy(schema.bookings.eventDate);
+      .orderBy(schema.bookings.startTime);
+
+    // Get invoice data for revenue
+    const bookingIds = bookingsWithClients.map(b => b.bookings.id);
+    const invoiceMap = new Map<string, number>();
+    
+    if (bookingIds.length > 0) {
+      const invoices = await db.select()
+        .from(schema.invoices)
+        .where(or(...bookingIds.map(id => eq(schema.invoices.bookingId, id))));
+      
+      invoices.forEach(inv => {
+        if (inv.bookingId) {
+          invoiceMap.set(inv.bookingId, Number(inv.total || 0));
+        }
+      });
+    }
 
     // Group by interval
     const grouped: Record<string, number> = {};
     
-    bookings.forEach(booking => {
-      if (!booking.eventDate) return;
+    bookingsWithClients.forEach(({ bookings: booking }) => {
+      if (!booking.startTime) return;
       
-      const date = new Date(booking.eventDate);
+      const date = new Date(booking.startTime);
       let key: string;
       
       if (interval === 'month') {
@@ -1244,16 +1270,20 @@ export class DatabaseStorage implements IStorage {
         key = date.toISOString().split('T')[0];
       }
       
-      grouped[key] = (grouped[key] || 0) + (booking.totalPrice || 0);
+      const revenue = invoiceMap.get(booking.id) || 0;
+      grouped[key] = (grouped[key] || 0) + revenue;
     });
 
     return Object.entries(grouped).map(([label, value]) => ({ label, value }));
   }
 
   async getStaffPerformance(from: Date, to: Date, ownerId: string): Promise<Array<{ staffId: string; staffName: string; bookingsCount: number; tasksCompleted: number }>> {
-    const staff = await db.select().from(schema.staff).where(eq(schema.staff.ownerId, ownerId));
+    const staffWithUsers = await db.select()
+      .from(schema.staff)
+      .innerJoin(schema.users, eq(schema.staff.userId, schema.users.id))
+      .where(eq(schema.users.ownerId, ownerId));
     
-    const results = await Promise.all(staff.map(async (staffMember) => {
+    const results = await Promise.all(staffWithUsers.map(async ({ staff: staffMember, users: user }) => {
       // Count bookings
       const bookings = await db.select()
         .from(schema.bookingStaff)
@@ -1261,8 +1291,8 @@ export class DatabaseStorage implements IStorage {
         .where(
           and(
             eq(schema.bookingStaff.staffId, staffMember.id),
-            gte(schema.bookings.eventDate, from),
-            lte(schema.bookings.eventDate, to)
+            gte(schema.bookings.startTime, from),
+            lte(schema.bookings.startTime, to)
           )
         );
 
@@ -1281,7 +1311,7 @@ export class DatabaseStorage implements IStorage {
 
       return {
         staffId: staffMember.id,
-        staffName: staffMember.name,
+        staffName: user.fullName || user.username,
         bookingsCount: bookings.length,
         tasksCompleted: tasks.length,
       };
