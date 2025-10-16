@@ -302,9 +302,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/clients", async (req, res) => {
+  app.post("/api/clients", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertClientSchema.parse(req.body);
+      const data = insertClientSchema.parse({
+        ...req.body,
+        ownerId: req.user!.id
+      });
       const client = await storage.createClient(data);
       res.json(client);
     } catch (error) {
