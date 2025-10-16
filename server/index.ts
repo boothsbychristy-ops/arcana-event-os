@@ -5,6 +5,8 @@ import cron from "node-cron";
 import { runScheduledAutomations } from "./agents/scheduler";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { uploadsStatic } from "./uploads";
+import assetRoutes from "./routes.assets";
 
 const app = express();
 
@@ -29,6 +31,12 @@ app.use("/api/auth/", authLimiter);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Serve uploaded files
+app.use('/uploads', uploadsStatic);
+
+// Mount asset routes
+app.use(assetRoutes);
 
 // Security: Safe metadata logging (no PII in logs)
 app.use((req, res, next) => {
