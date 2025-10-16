@@ -43,6 +43,7 @@ import {
   comparePassword,
   generateToken,
   authMiddleware,
+  roleMiddleware,
   type AuthRequest,
 } from "./auth";
 
@@ -280,9 +281,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Clients
-  app.get("/api/clients", async (req, res) => {
+  app.get("/api/clients", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const clients = await storage.getAllClients();
+      const clients = await storage.getAllClients(req.user!.id);
       res.json(clients);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch clients" });
@@ -340,9 +341,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Staff
-  app.get("/api/staff", async (req, res) => {
+  app.get("/api/staff", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const staff = await storage.getAllStaff();
+      const staff = await storage.getAllStaff(req.user!.id);
       res.json(staff);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch staff" });
@@ -402,9 +403,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Proposals
-  app.get("/api/proposals", async (req, res) => {
+  app.get("/api/proposals", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const proposals = await storage.getAllProposals();
+      const proposals = await storage.getAllProposals(req.user!.id);
       res.json(proposals);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch proposals" });
@@ -465,9 +466,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bookings
-  app.get("/api/bookings", async (req, res) => {
+  app.get("/api/bookings", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const bookings = await storage.getAllBookings();
+      const bookings = await storage.getAllBookings(req.user!.id);
       res.json(bookings);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bookings" });
@@ -559,9 +560,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Invoices
-  app.get("/api/invoices", authMiddleware, async (req, res) => {
+  app.get("/api/invoices", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const invoices = await storage.getAllInvoices();
+      const invoices = await storage.getAllInvoices(req.user!.id);
       res.json(invoices);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch invoices" });
@@ -622,6 +623,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Create invoice with booking data
       const invoice = await storage.createInvoice({
+        ownerId: booking.ownerId,
         bookingId: booking.id,
         clientId: booking.clientId,
         invoiceNumber,
@@ -703,9 +705,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payment Settings
-  app.get("/api/payment-settings", async (req, res) => {
+  app.get("/api/payment-settings", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const settings = await storage.getAllPaymentSettings();
+      const settings = await storage.getAllPaymentSettings(req.user!.id);
       res.json(settings);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payment settings" });
@@ -726,9 +728,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payment Methods
-  app.get("/api/payment-methods", async (req, res) => {
+  app.get("/api/payment-methods", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const methods = await storage.getAllPaymentMethods();
+      const methods = await storage.getAllPaymentMethods(req.user!.id);
       res.json(methods);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payment methods" });
@@ -748,9 +750,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payment Plans
-  app.get("/api/payment-plans", async (req, res) => {
+  app.get("/api/payment-plans", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const plans = await storage.getAllPaymentPlans();
+      const plans = await storage.getAllPaymentPlans(req.user!.id);
       res.json(plans);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payment plans" });
@@ -794,9 +796,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Booking Questions
-  app.get("/api/booking-questions", async (req, res) => {
+  app.get("/api/booking-questions", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const questions = await storage.getAllBookingQuestions();
+      const questions = await storage.getAllBookingQuestions(req.user!.id);
       res.json(questions);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch booking questions" });
@@ -829,9 +831,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Unavailable Notices
-  app.get("/api/unavailable-notices", async (req, res) => {
+  app.get("/api/unavailable-notices", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const notices = await storage.getAllUnavailableNotices();
+      const notices = await storage.getAllUnavailableNotices(req.user!.id);
       res.json(notices);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch unavailable notices" });
@@ -1030,9 +1032,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Tasks
-  app.get("/api/tasks", async (req, res) => {
+  app.get("/api/tasks", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const tasks = await storage.getAllTasks();
+      const tasks = await storage.getAllTasks(req.user!.id);
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch tasks" });
@@ -1051,7 +1053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tasks", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = req.user!;
-      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      const ownerId = user.id; // For owners, id IS ownerId. For staff, they create tasks under owner's account
       
       const data = insertTaskSchema.parse(req.body);
       const task = await storage.createTask({ ...data, ownerId });
@@ -1095,7 +1097,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Trigger task.status_changed automation if status changed
-      if (oldTask && data.status && oldTask.status !== data.status) {
+      if (oldTask && data.status && oldTask.status !== data.status && task.ownerId) {
         triggerAutomationEvent('task.status_changed', {
           taskId: task.id,
           title: task.title,
@@ -1350,7 +1352,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const user = req.user!;
-      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      const ownerId = user.id; // For owners, id IS ownerId
 
       const filters = {
         ownerId,
@@ -1501,7 +1503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Leads
   app.get("/api/leads", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const leads = await storage.getAllLeads();
+      const leads = await storage.getAllLeads(req.user!.id);
       res.json(leads);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch leads" });
@@ -1557,7 +1559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Staff Applications
   app.get("/api/staff-applications", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const applications = await storage.getAllStaffApplications();
+      const applications = await storage.getAllStaffApplications(req.user!.id);
       res.json(applications);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch staff applications" });
@@ -1677,7 +1679,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { runAutomation } = await import("./agents/engine");
-      const result = await runAutomation(automation, req.body.payload || {}, req.user!);
+      const result = await runAutomation(automation, req.body.payload || {});
       res.json(result);
     } catch (error) {
       if (error instanceof Error) {
@@ -1693,7 +1695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const to = req.query.to ? new Date(req.query.to as string) : new Date();
       const user = req.user!;
-      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      const ownerId = user.id; // For owners, id IS ownerId
       const staffId = user.role === 'staff' ? user.id : undefined;
       
       const summary = await storage.getAnalyticsSummary(from, to, ownerId, staffId);
@@ -1709,7 +1711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
       const to = req.query.to ? new Date(req.query.to as string) : new Date();
       const user = req.user!;
-      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      const ownerId = user.id; // For owners, id IS ownerId
       
       const series = await storage.getRevenueSeries(interval, from, to, ownerId);
       res.json(series);
@@ -1723,7 +1725,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const to = req.query.to ? new Date(req.query.to as string) : new Date();
       const user = req.user!;
-      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      const ownerId = user.id; // For owners, id IS ownerId
       
       const performance = await storage.getStaffPerformance(from, to, ownerId);
       res.json(performance);
@@ -1737,7 +1739,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const to = req.query.to ? new Date(req.query.to as string) : new Date();
       const user = req.user!;
-      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      const ownerId = user.id; // For owners, id IS ownerId
       
       const distribution = await storage.getStatusDistribution(from, to, ownerId);
       res.json(distribution);
@@ -1752,7 +1754,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const to = req.query.to ? new Date(req.query.to as string) : new Date();
       const user = req.user!;
-      const ownerId = user.role === 'owner' ? user.id : user.ownerId!;
+      const ownerId = user.id; // For owners, id IS ownerId
       
       if (type === 'revenue') {
         const data = await storage.getRevenueSeries('day', from, to, ownerId);
