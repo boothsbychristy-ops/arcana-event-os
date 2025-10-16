@@ -35,6 +35,7 @@ import {
   insertDeliverableSchema,
   insertLeadSchema,
   insertStaffApplicationSchema,
+  insertApprovalSchema,
   loginSchema,
   signupSchema,
 } from "@shared/schema";
@@ -1780,6 +1781,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (error) {
       res.status(500).json({ error: "Failed to export data" });
+    }
+  });
+
+  // Approvals
+  app.get("/api/approvals", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const approvals = await storage.getAllApprovals(req.user!.id);
+      res.json(approvals);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch approvals" });
+    }
+  });
+
+  app.post("/api/approvals", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertApprovalSchema.parse({
+        ...req.body,
+        ownerId: req.user!.id
+      });
+      const approval = await storage.createApproval(data);
+      res.json(approval);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create approval" });
+    }
+  });
+
+  app.patch("/api/approvals/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertApprovalSchema.partial().parse(req.body);
+      const approval = await storage.updateApproval(req.params.id, data);
+      if (!approval) {
+        return res.status(404).json({ error: "Approval not found" });
+      }
+      res.json(approval);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update approval" });
+    }
+  });
+
+  // AI Background Generator
+  app.post("/api/ai/background", authMiddleware, async (req: AuthRequest, res) => {
+    const { prompt } = req.body;
+    
+    if (!prompt) {
+      return res.status(400).json({ error: 'missing prompt' });
+    }
+
+    try {
+      const leonardoApiKey = process.env.LEONARDO_API_KEY;
+
+      if (!leonardoApiKey) {
+        // Return a mock URL for development/testing
+        const mockUrl = `https://images.unsplash.com/photo-1519167758481-83f29da8c4c0?w=1200&h=800&fit=crop&q=80`;
+        return res.json({ 
+          url: mockUrl,
+          note: 'Using mock image. Add LEONARDO_API_KEY to environment for AI generation.' 
+        });
+      }
+
+      // Leonardo API integration would go here
+      // For now, return mock URL
+      const mockUrl = `https://images.unsplash.com/photo-1519167758481-83f29da8c4c0?w=1200&h=800&fit=crop&q=80`;
+      res.json({ url: mockUrl });
+    } catch (error: any) {
+      console.error('AI Background generation error:', error);
+      res.status(500).json({ 
+        error: 'Failed to generate background',
+        message: error.message 
+      });
     }
   });
 
