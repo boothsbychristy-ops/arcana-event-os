@@ -28,6 +28,7 @@ export const users = pgTable("users", {
 // Clients table with referral tracking
 export const clients = pgTable("clients", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   userId: varchar("user_id").references(() => users.id),
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
@@ -41,6 +42,7 @@ export const clients = pgTable("clients", {
 // Staff profiles
 export const staff = pgTable("staff", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   userId: varchar("user_id").references(() => users.id).notNull(),
   title: text("title"),
   bio: text("bio"),
@@ -53,6 +55,7 @@ export const staff = pgTable("staff", {
 // Proposals with status workflow
 export const proposals = pgTable("proposals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   clientId: varchar("client_id").references(() => clients.id).notNull(),
   title: text("title").notNull(),
   description: text("description"),
@@ -67,6 +70,7 @@ export const proposals = pgTable("proposals", {
 // Bookings with venue and event details
 export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   clientId: varchar("client_id").references(() => clients.id).notNull(),
   proposalId: varchar("proposal_id").references(() => proposals.id),
   title: text("title").notNull(),
@@ -96,6 +100,7 @@ export const bookingStaff = pgTable("booking_staff", {
 // Invoices linked to bookings
 export const invoices = pgTable("invoices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   bookingId: varchar("booking_id").references(() => bookings.id).notNull(),
   clientId: varchar("client_id").references(() => clients.id).notNull(),
   invoiceNumber: text("invoice_number").notNull().unique(),
@@ -122,6 +127,7 @@ export const invoiceItems = pgTable("invoice_items", {
 // Payments with multiple methods
 export const payments = pgTable("payments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   invoiceId: varchar("invoice_id").references(() => invoices.id).notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   method: text("method").notNull(), // card, check, cash, venmo, zelle, cashapp
@@ -135,7 +141,8 @@ export const payments = pgTable("payments", {
 // Payment settings and processor configuration
 export const paymentSettings = pgTable("payment_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  processor: text("processor").notNull().unique(), // stripe, square, paypal
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  processor: text("processor").notNull(), // stripe, square, paypal
   isConnected: boolean("is_connected").notNull().default(false),
   apiKey: text("api_key"),
   publicKey: text("public_key"),
@@ -147,6 +154,7 @@ export const paymentSettings = pgTable("payment_settings", {
 // Payment plans (installments)
 export const paymentPlans = pgTable("payment_plans", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
   description: text("description"),
   installments: integer("installments").notNull(),
@@ -158,7 +166,8 @@ export const paymentPlans = pgTable("payment_plans", {
 // Payment methods configuration
 export const paymentMethods = pgTable("payment_methods", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  method: text("method").notNull().unique(), // card, check, cash, venmo, zelle, cashapp
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  method: text("method").notNull(), // card, check, cash, venmo, zelle, cashapp
   displayName: text("display_name").notNull(),
   isEnabled: boolean("is_enabled").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
@@ -168,6 +177,7 @@ export const paymentMethods = pgTable("payment_methods", {
 // Booking engine general settings
 export const bookingEngineSettings = pgTable("booking_engine_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   requireApproval: boolean("require_approval").notNull().default(true),
   allowGuestCheckout: boolean("allow_guest_checkout").notNull().default(false),
   minAdvanceBookingDays: integer("min_advance_booking_days").notNull().default(7),
@@ -213,6 +223,7 @@ export const unavailableNotices = pgTable("unavailable_notices", {
 // Privacy and consent settings
 export const privacySettings = pgTable("privacy_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   termsOfService: text("terms_of_service"),
   privacyPolicy: text("privacy_policy"),
   cookieConsent: boolean("cookie_consent").notNull().default(true),
