@@ -7,6 +7,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { uploadsStatic } from "./uploads";
 import assetRoutes from "./routes.assets";
+import { authMiddleware } from "./auth";
 
 const app = express();
 
@@ -50,6 +51,22 @@ app.use((req, res, next) => {
   next();
 });
 
+// Security: Global API authentication guard (whitelist public routes)
+const PUBLIC_ROUTES = new Set([
+  "/api/auth/login",
+  "/api/auth/signup",
+  "/api/auth/me",
+  "/api/public/register",
+  "/api/public/staff-apply"
+]);
+
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/") && !PUBLIC_ROUTES.has(req.path)) {
+    return authMiddleware(req as any, res, next);
+  }
+  next();
+});
+
 (async () => {
   const server = await registerRoutes(app);
 
@@ -57,8 +74,11 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
+    // Log the error for debugging
+    console.error("Error:", err);
+    
+    // Send error response (do not rethrow - this would crash the server)
     res.status(status).json({ message });
-    throw err;
   });
 
   // importantly only setup vite in development and after
