@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import EmbedFrame from '@/components/EmbedFrame';
 import BackgroundPicker from '@/components/BackgroundPicker';
+import AssetGrid from '@/components/AssetGrid';
 import { FileImage, CheckCircle2, XCircle, Clock, Plus } from 'lucide-react';
 
 interface Approval {
@@ -22,6 +23,7 @@ interface Approval {
   description: string;
   status: string;
   draftUrl: string | null;
+  assetsJson?: { items?: any[] };
   createdAt: string;
 }
 
@@ -34,6 +36,7 @@ type ApprovalFormData = z.infer<typeof approvalFormSchema>;
 
 export default function Approvals() {
   const [selectedBackground, setSelectedBackground] = useState<string | null>(null);
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
 
@@ -51,10 +54,7 @@ export default function Approvals() {
 
   const createApprovalMutation = useMutation({
     mutationFn: (data: ApprovalFormData) => 
-      apiRequest('/api/approvals', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
+      apiRequest('POST', '/api/approvals', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/approvals'] });
       toast({
@@ -73,9 +73,40 @@ export default function Approvals() {
     },
   });
 
+  const addAssetMutation = useMutation({
+    mutationFn: ({ approvalId, url, label }: { approvalId: string; url: string; label?: string }) =>
+      apiRequest('POST', `/api/approvals/${approvalId}/assets`, { url, type: 'ai_background', label }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/approvals'] });
+      toast({
+        title: 'Asset Added',
+        description: 'Background has been saved to approval',
+      });
+    },
+    onError: () => {
+      toast({
+        title: 'Error',
+        description: 'Failed to save asset',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const handleBackgroundSelect = (url: string) => {
     setSelectedBackground(url);
-    console.log('Selected background:', url);
+    if (selectedApprovalId) {
+      addAssetMutation.mutate({ 
+        approvalId: selectedApprovalId, 
+        url, 
+        label: 'AI Generated Background' 
+      });
+    } else {
+      toast({
+        title: 'No Approval Selected',
+        description: 'Please select an approval to add this background to',
+        variant: 'destructive',
+      });
+    }
   };
 
   const onSubmit = (data: ApprovalFormData) => {
@@ -217,18 +248,32 @@ export default function Approvals() {
         ) : approvals && approvals.length > 0 ? (
           <div className="grid gap-4">
             {approvals.map((approval) => (
-              <Card key={approval.id} data-testid={`card-approval-${approval.id}`}>
+              <Card 
+                key={approval.id} 
+                data-testid={`card-approval-${approval.id}`}
+                className={selectedApprovalId === approval.id ? 'ring-2 ring-primary' : ''}
+              >
                 <CardHeader>
                   <div className="flex items-start justify-between">
-                    <div>
+                    <div className="flex-1">
                       <CardTitle>{approval.title}</CardTitle>
                       <CardDescription className="mt-1">{approval.description}</CardDescription>
                     </div>
-                    {getStatusBadge(approval.status)}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant={selectedApprovalId === approval.id ? 'default' : 'outline'}
+                        onClick={() => setSelectedApprovalId(approval.id)}
+                        data-testid={`button-select-approval-${approval.id}`}
+                      >
+                        {selectedApprovalId === approval.id ? 'Selected' : 'Select'}
+                      </Button>
+                      {getStatusBadge(approval.status)}
+                    </div>
                   </div>
                 </CardHeader>
-                {approval.draftUrl && (
-                  <CardContent>
+                <CardContent className="space-y-4">
+                  {approval.draftUrl && (
                     <div className="rounded-lg overflow-hidden border border-border">
                       <img
                         src={approval.draftUrl}
@@ -236,8 +281,16 @@ export default function Approvals() {
                         className="w-full h-48 object-cover"
                       />
                     </div>
-                  </CardContent>
-                )}
+                  )}
+                  
+                  {/* Asset Gallery */}
+                  {approval.assetsJson?.items && approval.assetsJson.items.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium mb-3">Assets</h4>
+                      <AssetGrid items={approval.assetsJson.items} />
+                    </div>
+                  )}
+                </CardContent>
               </Card>
             ))}
           </div>
