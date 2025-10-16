@@ -9,10 +9,19 @@ if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-// Multer storage configuration (filename: timestamp-original)
+// Multer storage configuration (owner-scoped directories for tenant isolation)
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, UPLOAD_DIR);
+  destination: (req: any, _file, cb) => {
+    // Use owner ID for tenant isolation, fallback to 'public' for unauthenticated uploads
+    const ownerId = req.user?.id ?? 'public';
+    const ownerDir = path.join(UPLOAD_DIR, ownerId);
+    
+    // Ensure owner-specific directory exists
+    if (!fs.existsSync(ownerDir)) {
+      fs.mkdirSync(ownerDir, { recursive: true });
+    }
+    
+    cb(null, ownerDir);
   },
   filename: (_req, file, cb) => {
     const timestamp = Date.now();

@@ -1481,7 +1481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/bookings/:id/deliverables", authMiddleware, async (req, res) => {
     try {
-      const data = insertDeliverableSchema.parse({
+      const data = insertDeliverableSchema.strict().parse({
         ...req.body,
         bookingId: req.params.id,
       });
@@ -1537,7 +1537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(result);
       }
       
-      const data = insertLeadSchema.partial().parse(req.body);
+      const data = insertLeadSchema.partial().strict().parse(req.body);
       const lead = await storage.updateLead(req.params.id, data);
       if (!lead) {
         return res.status(404).json({ error: "Lead not found" });
@@ -1799,7 +1799,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/approvals", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertApprovalSchema.parse({
+      const data = insertApprovalSchema.strict().parse({
         ...req.body,
         ownerId: req.user!.id
       });
@@ -1815,7 +1815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/approvals/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertApprovalSchema.partial().parse(req.body);
+      const data = insertApprovalSchema.partial().strict().parse(req.body);
       const approval = await storage.updateApproval(req.params.id, data);
       if (!approval) {
         return res.status(404).json({ error: "Approval not found" });
