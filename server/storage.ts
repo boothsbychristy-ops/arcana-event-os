@@ -58,6 +58,7 @@ export interface IStorage {
   getStaffByUserId(userId: string): Promise<Staff | undefined>;
   createStaff(staff: InsertStaff): Promise<Staff>;
   updateStaff(id: string, ownerId: string, staff: Partial<InsertStaff>): Promise<Staff | undefined>;
+  deleteStaff(id: string, ownerId: string): Promise<boolean>;
   
   // Proposals
   getAllProposals(ownerId: string): Promise<Proposal[]>;
@@ -65,6 +66,7 @@ export interface IStorage {
   getProposalsByClient(clientId: string): Promise<Proposal[]>;
   createProposal(proposal: InsertProposal): Promise<Proposal>;
   updateProposal(id: string, ownerId: string, proposal: Partial<InsertProposal>): Promise<Proposal | undefined>;
+  deleteProposal(id: string, ownerId: string): Promise<boolean>;
   convertProposalToBooking(proposalId: string, ownerId: string): Promise<Booking>;
   
   // Bookings
@@ -74,6 +76,7 @@ export interface IStorage {
   getUpcomingBookings(limit?: number): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
   updateBooking(id: string, ownerId: string, booking: Partial<InsertBooking>): Promise<Booking | undefined>;
+  deleteBooking(id: string, ownerId: string): Promise<boolean>;
   
   // Booking Staff Assignments
   getBookingStaff(bookingId: string): Promise<BookingStaff[]>;
@@ -86,6 +89,7 @@ export interface IStorage {
   getInvoiceByBooking(bookingId: string): Promise<Invoice | undefined>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: string, ownerId: string, invoice: Partial<InsertInvoice>): Promise<Invoice | undefined>;
+  deleteInvoice(id: string, ownerId: string): Promise<boolean>;
   
   // Invoice Items
   getInvoiceItems(invoiceId: string): Promise<InvoiceItem[]>;
@@ -95,6 +99,7 @@ export interface IStorage {
   // Payments
   getPaymentsByInvoice(invoiceId: string): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
+  deletePayment(id: string, ownerId: string): Promise<boolean>;
   
   // Payment Settings
   getAllPaymentSettings(ownerId: string): Promise<PaymentSettings[]>;
@@ -340,6 +345,12 @@ export class DatabaseStorage implements IStorage {
     return staff;
   }
 
+  async deleteStaff(id: string, ownerId: string): Promise<boolean> {
+    const result = await db.delete(schema.staff)
+      .where(and(eq(schema.staff.id, id), eq(schema.staff.ownerId, ownerId)));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
   // Proposals
   async getAllProposals(ownerId: string): Promise<Proposal[]> {
     return db.select().from(schema.proposals)
@@ -366,6 +377,12 @@ export class DatabaseStorage implements IStorage {
     const [proposal] = await db.update(schema.proposals).set(proposalData)
       .where(and(eq(schema.proposals.id, id), eq(schema.proposals.ownerId, ownerId))).returning();
     return proposal;
+  }
+
+  async deleteProposal(id: string, ownerId: string): Promise<boolean> {
+    const result = await db.delete(schema.proposals)
+      .where(and(eq(schema.proposals.id, id), eq(schema.proposals.ownerId, ownerId)));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   async convertProposalToBooking(proposalId: string, ownerId: string): Promise<Booking> {
@@ -433,6 +450,12 @@ export class DatabaseStorage implements IStorage {
     return booking;
   }
 
+  async deleteBooking(id: string, ownerId: string): Promise<boolean> {
+    const result = await db.delete(schema.bookings)
+      .where(and(eq(schema.bookings.id, id), eq(schema.bookings.ownerId, ownerId)));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
   // Booking Staff Assignments
   async getBookingStaff(bookingId: string): Promise<BookingStaff[]> {
     return db.select().from(schema.bookingStaff).where(eq(schema.bookingStaff.bookingId, bookingId));
@@ -444,8 +467,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removeStaffFromBooking(id: string): Promise<boolean> {
-    await db.delete(schema.bookingStaff).where(eq(schema.bookingStaff.id, id));
-    return true;
+    const result = await db.delete(schema.bookingStaff).where(eq(schema.bookingStaff.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // Invoices
@@ -477,6 +500,12 @@ export class DatabaseStorage implements IStorage {
     return invoice;
   }
 
+  async deleteInvoice(id: string, ownerId: string): Promise<boolean> {
+    const result = await db.delete(schema.invoices)
+      .where(and(eq(schema.invoices.id, id), eq(schema.invoices.ownerId, ownerId)));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
   // Invoice Items
   async getInvoiceItems(invoiceId: string): Promise<InvoiceItem[]> {
     return db.select().from(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, invoiceId));
@@ -488,8 +517,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteInvoiceItem(id: string): Promise<boolean> {
-    await db.delete(schema.invoiceItems).where(eq(schema.invoiceItems.id, id));
-    return true;
+    const result = await db.delete(schema.invoiceItems).where(eq(schema.invoiceItems.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // Payments
@@ -500,6 +529,12 @@ export class DatabaseStorage implements IStorage {
   async createPayment(payment: InsertPayment): Promise<Payment> {
     const [result] = await db.insert(schema.payments).values(payment).returning();
     return result;
+  }
+
+  async deletePayment(id: string, ownerId: string): Promise<boolean> {
+    const result = await db.delete(schema.payments)
+      .where(and(eq(schema.payments.id, id), eq(schema.payments.ownerId, ownerId)));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // Payment Settings
