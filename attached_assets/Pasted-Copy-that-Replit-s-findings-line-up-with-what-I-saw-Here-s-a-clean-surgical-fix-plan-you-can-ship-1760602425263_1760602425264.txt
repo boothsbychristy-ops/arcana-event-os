@@ -1,0 +1,296 @@
+Copy that. Replit’s findings line up with what I saw. Here’s a clean, surgical fix plan you can ship now—code-first, then DB, then tests—so Rainbow CRM stops bleeding data across tenants.
+
+# 0) TL;DR of the risks (confirmed)
+
+* Any logged-in user can fetch/update/delete other users’ clients, proposals, bookings, invoices, etc. by guessing IDs.
+* Two queries filter by `ownerId` on tables that don’t have that column (`booking_questions`, `unavailable_notices`) → LSP/type errors + broken auth logic.
+* `bookingStaff` has no `ownerId`, so staff assignments can leak across tenants.
+* Routes use `authMiddleware` but do not assert ownership on per-record routes.
+* SECURITY_AUDIT.md is outdated (says missing `ownerId` where the schema actually has it).
+
+We’ll fix it in four punches: middleware, storage helpers, DB schema, tests.
+
+---
+
+# 1) Global API guard (deny by default)
+
+Make everything under `/api/**` authenticated unless whitelisted. Add role checks per route where needed.
+
+```ts
+// server/index.ts
+const PUBLIC = new Set([
+  "/api/auth/login",
+  "/api/auth/signup",
+  "/api/public/register",
+  "/api/public/staff-apply",
+]);
+
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/") && !PUBLIC.has(req.path)) {
+    return (authMiddleware as any)(req, res, next);
+  }
+  next();
+});
+```
+
+Optional: add a tiny write-rate limiter to POST/PATCH/DELETE and `/api/uploads`.
+
+---
+
+# 2) Centralize ownership checks in storage (no more raw id lookups)
+
+Create “owned” selectors so every per-record fetch/update enforces `ownerId`.
+
+```ts
+// server/lib/ownership.ts
+import { and, eq } from "drizzle-orm";
+import { db } from "../db";
+import * as T from "../../shared/schema"; // drizzle schemas
+
+export async function getOwnedClient(id: string, ownerId: string) {
+  const [row] = await db
+    .select()
+    .from(T.clients)
+    .where(and(eq(T.clients.id, id), eq(T.clients.ownerId, ownerId)));
+  return row ?? null;
+}
+
+export async function getOwnedProposal(id: string, ownerId: string) {
+  const [row] = await db
+    .select()
+    .from(T.proposals)
+    .where(and(eq(T.proposals.id, id), eq(T.proposals.ownerId, ownerId)));
+  return row ?? null;
+}
+
+// …repeat for bookings, invoices, payments, etc.
+
+// For tables WITHOUT ownerId but with a parent that has it:
+export async function getOwnedBookingQuestion(id: string, ownerId: string) {
+  const [row] = await db
+    .select({ id: T.booking_questions.id })
+    .from(T.booking_questions)
+    .innerJoin(T.bookings, eq(T.booking_questions.bookingId, T.bookings.id))
+    .where(and(eq(T.booking_questions.id, id), eq(T.bookings.ownerId, ownerId)));
+  return row ? { id } : null;
+}
+
+export async function getOwnedUnavailableNotice(id: string, ownerId: string) {
+  const [row] = await db
+    .select({ id: T.unavailable_notices.id })
+    .from(T.unavailable_notices)
+    .innerJoin(T.staff, eq(T.unavailable_notices.staffId, T.staff.id))
+    .where(and(eq(T.unavailable_notices.id, id), eq(T.staff.ownerId, ownerId)));
+  return row ? { id } : null;
+}
+
+// For bookingStaff (join table) — either add ownerId (see §3) or enforce via join:
+export async function getOwnedBookingStaff(id: string, ownerId: string) {
+  const [row] = await db
+    .select({ id: T.bookingStaff.id })
+    .from(T.bookingStaff)
+    .innerJoin(T.bookings, eq(T.bookingStaff.bookingId, T.bookings.id))
+    .where(and(eq(T.bookingStaff.id, id), eq(T.bookings.ownerId, ownerId)));
+  return row ? { id } : null;
+}
+```
+
+Then, in every route that currently does `getX(id)`:
+
+* Replace with the corresponding `getOwnedX(id, req.user!.id)`.
+* If `null` → return `404` (do **not** leak that the ID exists for someone else).
+* For mutations, perform the update with the same ownership predicate in the `WHERE` clause, and confirm `affectedRows === 1`.
+
+---
+
+# 3) Fix the schema + Drizzle migrations
+
+We have two choices for the “no ownerId” tables:
+
+**A. Don’t add `ownerId`** (preferred if they’re clearly children of owner-scoped parents):
+
+* Keep `booking_questions` owned via its `bookingId → bookings.ownerId`.
+* Keep `unavailable_notices` owned via `staffId → staff.ownerId`.
+* Keep `bookingStaff` owned via `bookingId → bookings.ownerId`.
+
+**B. Or add `ownerId`** to simplify queries and indexing for hot joins. Given your multi-tenant pattern, I recommend adding to `bookingStaff` only.
+
+Minimal migration (Drizzle SQL-ish):
+
+```ts
+// drizzle/20251016_add_owner_to_bookingStaff.sql
+ALTER TABLE bookingStaff ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+UPDATE bookingStaff bs
+SET owner_id = b.owner_id
+FROM bookings b
+WHERE bs.booking_id = b.id;
+
+ALTER TABLE bookingStaff ALTER COLUMN owner_id DROP DEFAULT;
+-- optional: add FK if you store owners in a users table
+-- CREATE INDEX idx_bookingStaff_owner ON bookingStaff(owner_id);
+```
+
+Then update schema:
+
+```ts
+// shared/schema.ts
+export const bookingStaff = pgTable("bookingStaff", {
+  id: text("id").primaryKey(),
+  bookingId: text("booking_id").notNull().references(() => bookings.id, { onDelete: "cascade" }),
+  staffId: text("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  ownerId: text("owner_id").notNull(), // NEW
+});
+```
+
+And update all `SELECT/UPDATE/DELETE` on `bookingStaff` to include `and(eq(bookingStaff.ownerId, ownerId))`. If you skip adding the column, keep the join-based guard from §2.
+
+**Also fix the two LSP errors** by removing invalid `...where(eq(booking_questions.ownerId, ...))` and `...where(eq(unavailable_notices.ownerId, ...))` filters and replacing with the join-based guards shown above.
+
+---
+
+# 4) Route wrappers: zod + ownership in one place
+
+Wrap handlers so you can’t “forget” to validate or enforce owner checks.
+
+```ts
+// server/lib/route.ts
+export function withSchema<I extends z.ZodTypeAny>(
+  schema: I,
+  handler: (req: Request & { parsed: z.infer<I> }, res: Response) => Promise<any>
+) {
+  return async (req: any, res: any) => {
+    const parsed = schema.strict().parse(req.method === "GET" ? req.query : req.body);
+    req.parsed = parsed;
+    return handler(req, res);
+  };
+}
+
+export function requireOwned<T>(
+  fetcher: (id: string, ownerId: string) => Promise<T | null>,
+  idParam = "id"
+) {
+  return async (req: any, res: any, next: any) => {
+    const { [idParam]: id } = req.params;
+    const ownerId = req.user!.id;
+    const row = await fetcher(id, ownerId);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    req.owned = row;
+    next();
+  };
+}
+```
+
+Then your route becomes declarative:
+
+```ts
+// server/routes/clients.ts
+router.get(
+  "/:id",
+  requireOwned(getOwnedClient),
+  async (req, res) => res.json(req.owned)
+);
+
+router.patch(
+  "/:id",
+  requireOwned(getOwnedClient),
+  withSchema(updateClientSchema, async (req, res) => {
+    const ok = await updateClientOwned(req.params.id, req.user!.id, req.parsed);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.json({ ok: true });
+  })
+);
+```
+
+Repeat for proposals, bookings, invoices, payments, assets, etc.
+
+---
+
+# 5) Helmet CSP, CORS, error handler, rate limits
+
+* **Helmet CSP** (prod only): permit your app origin, fonts, images (including `/uploads`), and any CDNs.
+* **CORS**: set explicit origin to your client domain; include credentials if needed.
+* **Error middleware**: don’t `throw` after sending the response; add a request-id header for tracing.
+* **Limiter**: add a conservative limiter for write routes and uploads.
+
+---
+
+# 6) Indexes (speed + tenancy safety)
+
+Add indices you’ll use constantly:
+
+```sql
+CREATE INDEX idx_clients_owner ON clients(owner_id);
+CREATE INDEX idx_bookings_owner_date ON bookings(owner_id, event_date);
+CREATE INDEX idx_invoices_owner_status ON invoices(owner_id, status);
+CREATE INDEX idx_tasks_board_status ON tasks(board_id, status);
+-- If you added ownerId to bookingStaff:
+CREATE INDEX idx_bookingStaff_owner ON bookingStaff(owner_id);
+```
+
+---
+
+# 7) Tests that prevent regressions (Supertest)
+
+Ship three must-have suites:
+
+1. **Auth wall**
+
+* Every `/api/**` (except PUBLIC) → 401 when unauthenticated.
+
+2. **Ownership wall**
+
+* User A creates a client; User B attempts GET/PATCH/DELETE → 404.
+
+3. **Schema strictness**
+
+* Unknown keys in bodies are rejected with 400.
+* Type mismatches rejected with 400.
+
+Example test sketch:
+
+```ts
+it("denies cross-tenant read", async () => {
+  const a = await loginAs("a@example.com");
+  const b = await loginAs("b@example.com");
+  const { id } = await createClient(a.token);
+  await request(app).get(`/api/clients/${id}`).set("Authorization", `Bearer ${b.token}`).expect(404);
+});
+```
+
+---
+
+# 8) Update SECURITY_AUDIT.md (so future-you doesn’t get gaslit by stale docs)
+
+* Clarify that `ownerId` exists on primary tables but **must** be enforced in storage/queries.
+* State the join-based ownership rules for child tables.
+* Document the global `/api/**` guard and PUBLIC whitelist.
+* Add a short “threat model” section (ID guessing → mitigated by ownership checks; mass scraping → mitigated by rate limits + CSP).
+
+---
+
+# 9) Quick “fix order” checklist you can paste into Replit tasks
+
+1. Add global API guard (deny by default).
+2. Create `ownership.ts` helpers; refactor all per-record routes to use them.
+3. Replace invalid `ownerId` filters on `booking_questions` and `unavailable_notices` with join-based checks.
+4. (Option A) Add `ownerId` to `bookingStaff` + migration + index, **or** (Option B) keep join-based guard.
+5. Wrap all write routes in `withSchema(...).strict()`.
+6. Harden middleware: Helmet CSP (prod), CORS, rate limits, error handler (no rethrow).
+7. Add indices and run migration.
+8. Add Supertest auth/ownership/schema suites.
+9. Update SECURITY_AUDIT.md with the new guarantees.
+
+---
+
+# 10) Want me to draft the exact patches?
+
+I can spit out ready-to-paste diffs for:
+
+* `server/lib/ownership.ts`
+* `server/lib/route.ts`
+* Updated `server/routes/*` (clients, proposals, bookings, invoices, bookingStaff, booking_questions, unavailable_notices)
+* Schema + migration for `bookingStaff.owner_id`
+* A tiny Supertest starter suite
+
+Then we’ll run the suite and try to break it—inventors love a demo that refuses to leak data.

@@ -337,7 +337,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/clients/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      await storage.deleteClient(req.params.id, req.user!.id);
+      const success = await storage.deleteClient(req.params.id, req.user!.id);
+      if (!success) {
+        return res.status(404).json({ error: "Client not found" });
+      }
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete client" });

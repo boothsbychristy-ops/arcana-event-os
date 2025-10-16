@@ -307,8 +307,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteClient(id: string, ownerId: string): Promise<boolean> {
-    await db.delete(schema.clients).where(and(eq(schema.clients.id, id), eq(schema.clients.ownerId, ownerId)));
-    return true;
+    const result = await db.delete(schema.clients).where(and(eq(schema.clients.id, id), eq(schema.clients.ownerId, ownerId)));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   // Staff

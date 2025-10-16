@@ -1,0 +1,437 @@
+Boom. Here are ready-to-paste patches for Rainbow CRM that fix the auth bypass, enforce ownership on every record, clean up the two LSP issues, optionally add `ownerId` to `bookingStaff`, harden headers/limits, and ship a minimal Supertest suite.
+
+I’m using small, composable helpers so you don’t have to touch every route twice.
+
+# 1) New: `server/lib/ownership.ts`
+
+Create a single source of truth for “owned” lookups. Join through parents for tables that don’t have `ownerId`.
+
+```ts
+// server/lib/ownership.ts
+import { and, eq } from "drizzle-orm";
+import { db } from "../db";
+import * as T from "../../shared/schema";
+
+export async function getOwnedClient(id: string, ownerId: string) {
+  const [row] = await db.select().from(T.clients)
+    .where(and(eq(T.clients.id, id), eq(T.clients.ownerId, ownerId)));
+  return row ?? null;
+}
+
+export async function getOwnedProposal(id: string, ownerId: string) {
+  const [row] = await db.select().from(T.proposals)
+    .where(and(eq(T.proposals.id, id), eq(T.proposals.ownerId, ownerId)));
+  return row ?? null;
+}
+
+export async function getOwnedBooking(id: string, ownerId: string) {
+  const [row] = await db.select().from(T.bookings)
+    .where(and(eq(T.bookings.id, id), eq(T.bookings.ownerId, ownerId)));
+  return row ?? null;
+}
+
+export async function getOwnedInvoice(id: string, ownerId: string) {
+  const [row] = await db.select().from(T.invoices)
+    .where(and(eq(T.invoices.id, id), eq(T.invoices.ownerId, ownerId)));
+  return row ?? null;
+}
+
+export async function getOwnedPayment(id: string, ownerId: string) {
+  const [row] = await db.select().from(T.payments)
+    .where(and(eq(T.payments.id, id), eq(T.payments.ownerId, ownerId)));
+  return row ?? null;
+}
+
+// CHILD TABLES (no ownerId column) — enforce via joins
+
+export async function getOwnedBookingQuestion(id: string, ownerId: string) {
+  const [row] = await db
+    .select({ id: T.booking_questions.id })
+    .from(T.booking_questions)
+    .innerJoin(T.bookings, eq(T.booking_questions.bookingId, T.bookings.id))
+    .where(and(eq(T.booking_questions.id, id), eq(T.bookings.ownerId, ownerId)));
+  return row ? { id: row.id } : null;
+}
+
+export async function getOwnedUnavailableNotice(id: string, ownerId: string) {
+  const [row] = await db
+    .select({ id: T.unavailable_notices.id })
+    .from(T.unavailable_notices)
+    .innerJoin(T.staff, eq(T.unavailable_notices.staffId, T.staff.id))
+    .where(and(eq(T.unavailable_notices.id, id), eq(T.staff.ownerId, ownerId)));
+  return row ? { id: row.id } : null;
+}
+
+// BOOKING STAFF — Option A: with ownerId on table (preferred if you run the migration below)
+export async function getOwnedBookingStaff(id: string, ownerId: string) {
+  // If you do NOT add ownerId, switch this to a join via bookings like above.
+  const [row] = await db
+    .select({ id: T.bookingStaff.id })
+    .from(T.bookingStaff)
+    .where(and(eq(T.bookingStaff.id, id), eq(T.bookingStaff.ownerId, ownerId))); // requires migration
+  return row ? { id: row.id } : null;
+}
+```
+
+# 2) New: `server/lib/route.ts`
+
+Zod+ownership wrappers so you can’t forget either.
+
+```ts
+// server/lib/route.ts
+import type { Request, Response, NextFunction } from "express";
+import { z } from "zod";
+
+export function withBody<I extends z.ZodTypeAny>(
+  schema: I,
+  handler: (req: Request & { body: z.infer<I> }, res: Response) => Promise<any>
+) {
+  return async (req: any, res: any, next: NextFunction) => {
+    try {
+      req.body = schema.strict().parse(req.body ?? {});
+      await handler(req, res);
+    } catch (e) { next(e); }
+  };
+}
+
+export function withQuery<I extends z.ZodTypeAny>(
+  schema: I,
+  handler: (req: Request & { query: z.infer<I> }, res: Response) => Promise<any>
+) {
+  return async (req: any, res: any, next: NextFunction) => {
+    try {
+      req.query = schema.strict().parse(req.query ?? {});
+      await handler(req, res);
+    } catch (e) { next(e); }
+  };
+}
+
+export function requireOwned<T>(
+  fetcher: (id: string, ownerId: string) => Promise<T | null>,
+  idParam = "id"
+) {
+  return async (req: any, res: any, next: NextFunction) => {
+    try {
+      const id = req.params[idParam];
+      const ownerId = req.user?.id;
+      if (!ownerId) return res.status(401).json({ error: "Unauthorized" });
+      const row = await fetcher(id, ownerId);
+      if (!row) return res.status(404).json({ error: "Not found" });
+      req.owned = row;
+      next();
+    } catch (e) { next(e); }
+  };
+}
+```
+
+# 3) Patch: global API guard, CSP, CORS, limiter, fixed error handler
+
+Edit `server/index.ts` (or your main Express bootstrap file).
+
+```ts
+// server/index.ts (add near top)
+import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
+
+// ... existing imports
+
+// Trust proxy if on Replit/Render
+app.set("trust proxy", 1);
+
+// Security headers (tighten in prod)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: process.env.NODE_ENV === "production" ? {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:", "blob:", process.env.PUBLIC_ASSET_ORIGIN ?? "'self'"],
+      "media-src": ["'self'", "blob:"],
+      "connect-src": ["'self'", process.env.CLIENT_ORIGIN ?? "'self'"],
+      "script-src": ["'self'"],
+      "style-src": ["'self'", "'unsafe-inline'"],
+      "font-src": ["'self'", "data:"],
+    },
+  } : false
+}));
+
+// CORS (lock this down to your app origin)
+app.use(cors({
+  origin: process.env.CLIENT_ORIGIN ?? true,
+  credentials: true,
+}));
+
+// Rate limit writes + uploads
+const writeLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(["/api", "/uploads"], (req, res, next) =>
+  ["POST", "PUT", "PATCH", "DELETE"].includes(req.method) ? writeLimiter(req, res, next) : next()
+);
+
+// Public route whitelist + global auth guard
+const PUBLIC = new Set([
+  "/api/auth/login",
+  "/api/auth/signup",
+  "/api/public/register",
+  "/api/public/staff-apply",
+]);
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/") && !PUBLIC.has(req.path)) {
+    return (authMiddleware as any)(req, res, next);
+  }
+  next();
+});
+
+// ... your routes
+
+// Error handler — do NOT rethrow after sending
+app.use((err: any, _req: any, res: any, _next: any) => {
+  const code = err?.status ?? 400;
+  res.status(code).json({ error: err?.message ?? "Bad Request" });
+});
+```
+
+# 4) Fix the two LSP errors (ownerId on child tables)
+
+Wherever you had `where(eq(booking_questions.ownerId, ...))` or `where(eq(unavailable_notices.ownerId, ...))`, replace with the join checks above. If that code sits in `server/storage.ts`, make these concrete changes:
+
+```ts
+// BAD (remove)
+.where(and(eq(T.booking_questions.id, id), eq(T.booking_questions.ownerId, ownerId)))
+
+// GOOD (join through bookings)
+.innerJoin(T.bookings, eq(T.booking_questions.bookingId, T.bookings.id))
+.where(and(eq(T.booking_questions.id, id), eq(T.bookings.ownerId, ownerId)))
+
+// And for unavailable_notices:
+.innerJoin(T.staff, eq(T.unavailable_notices.staffId, T.staff.id))
+.where(and(eq(T.unavailable_notices.id, id), eq(T.staff.ownerId, ownerId)))
+```
+
+# 5) Optional schema hardening: add ownerId to `bookingStaff`
+
+If you want simpler predicates (recommended), add `owner_id` with a migration.
+
+**Migration file (Drizzle SQL or raw):** `drizzle/20251016_add_owner_to_bookingStaff.sql`
+
+```sql
+ALTER TABLE bookingStaff ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+UPDATE bookingStaff bs
+SET owner_id = b.owner_id
+FROM bookings b
+WHERE bs.booking_id = b.id;
+
+ALTER TABLE bookingStaff ALTER COLUMN owner_id DROP DEFAULT;
+CREATE INDEX IF NOT EXISTS idx_bookingStaff_owner ON bookingStaff(owner_id);
+```
+
+**Schema patch:** `shared/schema.ts`
+
+```ts
+export const bookingStaff = pgTable("bookingStaff", {
+  id: text("id").primaryKey(),
+  bookingId: text("booking_id").notNull().references(() => bookings.id, { onDelete: "cascade" }),
+  staffId: text("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  ownerId: text("owner_id").notNull(), // ← NEW
+});
+```
+
+If you skip this migration, keep the join-based `getOwnedBookingStaff` that goes through `bookings`.
+
+# 6) Route refactors (pattern)
+
+You don’t have to rewrite everything—swap per-record handlers to `requireOwned` and wrap bodies with `withBody`.
+
+**Example: `server/routes/clients.ts`**
+
+```ts
+import { Router } from "express";
+import { z } from "zod";
+import { withBody, requireOwned } from "../lib/route";
+import { getOwnedClient } from "../lib/ownership";
+import { updateClientOwned } from "../storage"; // implement to include ownerId in WHERE
+
+const router = Router();
+
+router.get("/:id", requireOwned(getOwnedClient), async (req, res) => {
+  res.json(req.owned);
+});
+
+const updateClientSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+router.patch(
+  "/:id",
+  requireOwned(getOwnedClient),
+  withBody(updateClientSchema, async (req: any, res) => {
+    const ok = await updateClientOwned(req.params.id, req.user!.id, req.body);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.json({ ok: true });
+  })
+);
+
+router.delete("/:id", requireOwned(getOwnedClient), async (req: any, res) => {
+  const ok = await deleteClientOwned(req.params.id, req.user!.id);
+  if (!ok) return res.status(404).json({ error: "Not found" });
+  res.json({ ok: true });
+});
+
+export default router;
+```
+
+**In `server/storage.ts` add the owner-scoped mutators:**
+
+```ts
+import { and, eq } from "drizzle-orm";
+import * as T from "../shared/schema";
+import { db } from "./db";
+
+export async function updateClientOwned(id: string, ownerId: string, patch: Partial<typeof T.clients.$inferInsert>) {
+  const result = await db.update(T.clients)
+    .set(patch)
+    .where(and(eq(T.clients.id, id), eq(T.clients.ownerId, ownerId)));
+  return (result.rowCount ?? (result as any).rowsAffected ?? 0) === 1;
+}
+
+export async function deleteClientOwned(id: string, ownerId: string) {
+  const result = await db.delete(T.clients)
+    .where(and(eq(T.clients.id, id), eq(T.clients.ownerId, ownerId)));
+  return (result.rowCount ?? (result as any).rowsAffected ?? 0) === 1;
+}
+```
+
+Repeat this pattern for proposals, bookings, invoices, payments, booking_questions, unavailable_notices, and bookingStaff (with join-based checks or the new `ownerId`).
+
+> Grep targets to convert now:
+> `GET|PATCH|DELETE /api/clients/:id`
+> `GET|PATCH /api/proposals/:id`
+> `GET|PATCH /api/bookings/:id`
+> `GET|PATCH /api/invoices/:id`
+> any `/:id` route across `/api/**` that fetches by id.
+
+# 7) Uploads: per-owner paths + safer filenames (optional but nice)
+
+If you’re using Multer, add owner-scoped dirs to reduce cross-tenant collisions.
+
+```ts
+// server/uploads.ts
+import multer from "multer";
+import { nanoid } from "nanoid";
+import path from "path";
+import fs from "fs";
+
+function safeName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+const storage = multer.diskStorage({
+  destination: (req: any, _file, cb) => {
+    const ownerId = req.user?.id ?? "public";
+    const dir = path.join(process.cwd(), "uploads", ownerId);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const id = nanoid(8);
+    cb(null, `${Date.now()}-${id}-${safeName(file.originalname)}`);
+  },
+});
+
+export const uploader = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+```
+
+Then in your routes: `router.post("/upload", uploader.single("file"), handler)`
+
+# 8) Indices (DB perf + tenancy)
+
+Add these to a migration:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_clients_owner ON clients(owner_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_owner_date ON bookings(owner_id, event_date);
+CREATE INDEX IF NOT EXISTS idx_invoices_owner_status ON invoices(owner_id, status);
+```
+
+# 9) Tests: minimal Supertest suite to prevent regressions
+
+Create `server/tests/auth_ownership.spec.ts`.
+
+```ts
+// server/tests/auth_ownership.spec.ts
+import request from "supertest";
+import { app } from "../index"; // or wherever you export Express app
+
+async function signupAndLogin(email: string) {
+  await request(app).post("/api/auth/signup").send({ email, password: "P@ssw0rd!" }).expect(200);
+  const { body } = await request(app).post("/api/auth/login").send({ email, password: "P@ssw0rd!" }).expect(200);
+  return body.token as string;
+}
+
+describe("Auth walls & ownership", () => {
+  it("blocks unauthenticated access to protected routes", async () => {
+    await request(app).get("/api/clients/someid").expect(401);
+  });
+
+  it("returns 404 on cross-tenant read", async () => {
+    const tokenA = await signupAndLogin("a@example.com");
+    const tokenB = await signupAndLogin("b@example.com");
+
+    const create = await request(app).post("/api/clients")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ name: "ACME", email: "x@ac.me" })
+      .expect(200);
+
+    const id = create.body.id;
+
+    await request(app).get(`/api/clients/${id}`)
+      .set("Authorization", `Bearer ${tokenB}`)
+      .expect(404);
+  });
+
+  it("rejects unknown keys via zod", async () => {
+    const token = await signupAndLogin("c@example.com");
+    await request(app).post("/api/clients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "OK", sneaky: "nope" })
+      .expect(400);
+  });
+});
+```
+
+Update `package.json` test script if needed: `"test": "vitest run"` or `"jest"` depending on your setup.
+
+# 10) Docs: update `SECURITY_AUDIT.md`
+
+Replace the outdated note with:
+
+* All primary tables are tenant-scoped by `owner_id`.
+* Child tables without `owner_id` are enforced via joins to a parent with `owner_id`.
+* Global `/api/**` guard (whitelist: auth + public endpoints).
+* Per-record routes must use `requireOwned` wrappers.
+* Zod `.strict()` on all POST/PATCH/DELETE.
+* Helmet CSP (prod), write-route rate limiting, and CORS origins configured.
+
+---
+
+## Ship order (copy/paste into your Replit tasks)
+
+1. Add `server/lib/ownership.ts` and `server/lib/route.ts`.
+2. Patch `server/index.ts` with global guard, CSP/CORS/limiter, fixed error handler.
+3. Refactor `/:id` routes to use `requireOwned` + `withBody`.
+4. Fix LSP errors by replacing bad `ownerId` filters with join checks.
+5. (Optional) Run `bookingStaff.owner_id` migration + schema update.
+6. Add DB indices migration.
+7. Drop in Supertest suite and run it.
+8. Update `SECURITY_AUDIT.md`.
+
+When you’re ready, tell me which route file you want converted first (clients, proposals, bookings, invoices), and I’ll hand you the exact before/after diff for that file so it’s truly zero-thinking.
