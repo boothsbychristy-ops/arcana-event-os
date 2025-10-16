@@ -1109,40 +1109,60 @@ export class DatabaseStorage implements IStorage {
     unpaidInvoices: number;
     openDeliverables: number;
   }> {
-    const invoices = await db.select().from(schema.invoices);
-    const totalRevenue = invoices.reduce((sum, inv) => sum + Number(inv.amountPaid), 0);
-    
-    const activeProposals = await db.select().from(schema.proposals)
-      .where(eq(schema.proposals.status, "viewed"));
-    
-    const upcomingBookings = await db.select().from(schema.bookings)
-      .where(eq(schema.bookings.status, "confirmed"));
-    
-    const pendingTasks = await db.select().from(schema.tasks)
-      .where(eq(schema.tasks.status, "todo"));
+    try {
+      console.log("Starting getDashboardStats...");
+      
+      const invoices = await db.select().from(schema.invoices);
+      console.log(`Fetched ${invoices.length} invoices`);
+      const totalRevenue = invoices.reduce((sum, inv) => sum + Number(inv.amountPaid || 0), 0);
+      
+      const activeProposals = await db.select().from(schema.proposals)
+        .where(eq(schema.proposals.status, "viewed"));
+      console.log(`Fetched ${activeProposals.length} active proposals`);
+      
+      const upcomingBookings = await db.select().from(schema.bookings)
+        .where(eq(schema.bookings.status, "confirmed"));
+      console.log(`Fetched ${upcomingBookings.length} upcoming bookings`);
+      
+      const pendingTasks = await db.select().from(schema.tasks)
+        .where(eq(schema.tasks.status, "todo"));
+      console.log(`Fetched ${pendingTasks.length} pending tasks`);
 
-    // Count bookings with no staff assigned
-    const allBookings = await db.select().from(schema.bookings);
-    const bookingStaffAssignments = await db.select().from(schema.bookingStaff);
-    const bookingsWithStaff = new Set(bookingStaffAssignments.map(bs => bs.bookingId));
-    const noStaffAssigned = allBookings.filter(b => !bookingsWithStaff.has(b.id)).length;
+      // Count bookings with no staff assigned
+      const allBookings = await db.select().from(schema.bookings);
+      const bookingStaffAssignments = await db.select().from(schema.bookingStaff);
+      const bookingsWithStaff = new Set(bookingStaffAssignments.map(bs => bs.bookingId));
+      const noStaffAssigned = allBookings.filter(b => !bookingsWithStaff.has(b.id)).length;
+      console.log(`${noStaffAssigned} bookings with no staff assigned`);
 
-    // Count unpaid invoices (status != 'paid' and balance > 0)
-    const unpaidInvoices = invoices.filter(inv => inv.status !== "paid" && Number(inv.balance) > 0).length;
+      // Count unpaid invoices (status != 'paid' and balance > 0)
+      const unpaidInvoices = invoices.filter(inv => {
+        const balance = Number(inv.balance || 0);
+        return inv.status !== "paid" && balance > 0;
+      }).length;
+      console.log(`${unpaidInvoices} unpaid invoices`);
 
-    // Count open deliverables (all deliverables for now - schema doesn't have status)
-    const deliverables = await db.select().from(schema.deliverables);
-    const openDeliverables = deliverables.length;
+      // Count open deliverables (all deliverables for now - schema doesn't have status)
+      const deliverables = await db.select().from(schema.deliverables);
+      const openDeliverables = deliverables.length;
+      console.log(`${openDeliverables} open deliverables`);
 
-    return {
-      totalRevenue,
-      activeProposals: activeProposals.length,
-      upcomingBookings: upcomingBookings.length,
-      pendingTasks: pendingTasks.length,
-      noStaffAssigned,
-      unpaidInvoices,
-      openDeliverables,
-    };
+      const result = {
+        totalRevenue,
+        activeProposals: activeProposals.length,
+        upcomingBookings: upcomingBookings.length,
+        pendingTasks: pendingTasks.length,
+        noStaffAssigned,
+        unpaidInvoices,
+        openDeliverables,
+      };
+      
+      console.log("Dashboard stats result:", result);
+      return result;
+    } catch (error) {
+      console.error("Error in getDashboardStats:", error);
+      throw error;
+    }
   }
 
   async getRevenueByMonth(): Promise<Array<{ month: string; revenue: number }>> {
