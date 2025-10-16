@@ -30,6 +30,7 @@ import PaymentSettings from "@/pages/settings/payment-settings";
 import BookingEngineSettings from "@/pages/settings/booking-engine";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
 
 function ProtectedRoute({ component: Component, ...rest }: { component: () => JSX.Element; path?: string }) {
   const { user, isLoading } = useAuth();
@@ -105,8 +106,11 @@ function AppLayout() {
               <h1 className="text-xl font-bold text-white">Project Rainbow CRM</h1>
             </div>
             {user && (
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
                 <span className="text-sm text-white">{user.fullName}</span>
+                <div className="text-white">
+                  <ThemeToggle />
+                </div>
                 <Button
                   variant="ghost"
                   size="icon"
