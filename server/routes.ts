@@ -97,13 +97,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Hash password
       const hashedPassword = await hashPassword(data.password);
 
-      // Create user
+      // Create user with forced 'client' role (security: prevent privilege escalation)
       const user = await storage.createUser({
         username: data.username,
         email: data.email,
         password: hashedPassword,
         fullName: data.fullName,
-        role: data.role,
+        role: "client", // Always force 'client' role on signup
       });
 
       // Generate token
@@ -171,6 +171,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/logout", (req, res) => {
     // Client-side will remove the token
     res.json({ success: true });
+  });
+
+  // Admin-only: Update user role (security: requires owner/admin)
+  app.patch("/api/users/:id/role", authMiddleware, roleMiddleware("owner", "admin"), async (req: AuthRequest, res) => {
+    try {
+      const roleUpdateSchema = z.object({
+        role: z.enum(["owner", "admin", "staff", "client"])
+      });
+      
+      const data = roleUpdateSchema.parse(req.body);
+      const userId = req.params.id;
+      
+      const updatedUser = await storage.updateUser(userId, { role: data.role });
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const { password, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update user role" });
+    }
   });
 
   // Public Registration Endpoints (no auth required)

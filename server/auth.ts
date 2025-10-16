@@ -3,7 +3,10 @@ import bcrypt from "bcrypt";
 import type { Request, Response, NextFunction } from "express";
 import type { User } from "@shared/schema";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable must be set. Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"");
+}
 const SALT_ROUNDS = 10;
 
 export interface AuthRequest extends Request {
