@@ -45,21 +45,21 @@ export interface IStorage {
   updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
   
   // Clients
-  getAllClients(): Promise<Client[]>;
+  getAllClients(ownerId: string): Promise<Client[]>;
   getClient(id: string): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
   updateClient(id: string, client: Partial<InsertClient>): Promise<Client | undefined>;
   deleteClient(id: string): Promise<boolean>;
   
   // Staff
-  getAllStaff(): Promise<Staff[]>;
+  getAllStaff(ownerId: string): Promise<Staff[]>;
   getStaff(id: string): Promise<Staff | undefined>;
   getStaffByUserId(userId: string): Promise<Staff | undefined>;
   createStaff(staff: InsertStaff): Promise<Staff>;
   updateStaff(id: string, staff: Partial<InsertStaff>): Promise<Staff | undefined>;
   
   // Proposals
-  getAllProposals(): Promise<Proposal[]>;
+  getAllProposals(ownerId: string): Promise<Proposal[]>;
   getProposal(id: string): Promise<Proposal | undefined>;
   getProposalsByClient(clientId: string): Promise<Proposal[]>;
   createProposal(proposal: InsertProposal): Promise<Proposal>;
@@ -67,7 +67,7 @@ export interface IStorage {
   convertProposalToBooking(proposalId: string): Promise<Booking>;
   
   // Bookings
-  getAllBookings(): Promise<Booking[]>;
+  getAllBookings(ownerId: string): Promise<Booking[]>;
   getBooking(id: string): Promise<Booking | undefined>;
   getBookingsByClient(clientId: string): Promise<Booking[]>;
   getUpcomingBookings(limit?: number): Promise<Booking[]>;
@@ -80,7 +80,7 @@ export interface IStorage {
   removeStaffFromBooking(id: string): Promise<boolean>;
   
   // Invoices
-  getAllInvoices(): Promise<Invoice[]>;
+  getAllInvoices(ownerId: string): Promise<Invoice[]>;
   getInvoice(id: string): Promise<Invoice | undefined>;
   getInvoiceByBooking(bookingId: string): Promise<Invoice | undefined>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
@@ -96,16 +96,16 @@ export interface IStorage {
   createPayment(payment: InsertPayment): Promise<Payment>;
   
   // Payment Settings
-  getAllPaymentSettings(): Promise<PaymentSettings[]>;
+  getAllPaymentSettings(ownerId: string): Promise<PaymentSettings[]>;
   getPaymentSettings(processor: string): Promise<PaymentSettings | undefined>;
   upsertPaymentSettings(settings: InsertPaymentSettings): Promise<PaymentSettings>;
   
   // Payment Methods
-  getAllPaymentMethods(): Promise<PaymentMethod[]>;
+  getAllPaymentMethods(ownerId: string): Promise<PaymentMethod[]>;
   updatePaymentMethod(id: string, method: Partial<InsertPaymentMethod>): Promise<PaymentMethod | undefined>;
   
   // Payment Plans
-  getAllPaymentPlans(): Promise<PaymentPlan[]>;
+  getAllPaymentPlans(ownerId: string): Promise<PaymentPlan[]>;
   createPaymentPlan(plan: InsertPaymentPlan): Promise<PaymentPlan>;
   
   // Booking Engine Settings
@@ -113,7 +113,7 @@ export interface IStorage {
   upsertBookingEngineSettings(settings: InsertBookingEngineSettings): Promise<BookingEngineSettings>;
   
   // Booking Questions
-  getAllBookingQuestions(): Promise<BookingQuestion[]>;
+  getAllBookingQuestions(ownerId: string): Promise<BookingQuestion[]>;
   createBookingQuestion(question: InsertBookingQuestion): Promise<BookingQuestion>;
   updateBookingQuestion(id: string, question: Partial<InsertBookingQuestion>): Promise<BookingQuestion | undefined>;
   
@@ -122,7 +122,7 @@ export interface IStorage {
   createBookingResponse(response: InsertBookingResponse): Promise<BookingResponse>;
   
   // Unavailable Notices
-  getAllUnavailableNotices(): Promise<UnavailableNotice[]>;
+  getAllUnavailableNotices(ownerId: string): Promise<UnavailableNotice[]>;
   createUnavailableNotice(notice: InsertUnavailableNotice): Promise<UnavailableNotice>;
   updateUnavailableNotice(id: string, notice: Partial<InsertUnavailableNotice>): Promise<UnavailableNotice | undefined>;
   
@@ -150,7 +150,7 @@ export interface IStorage {
   deleteTaskStatus(id: string): Promise<boolean>;
   
   // Tasks
-  getAllTasks(): Promise<Task[]>;
+  getAllTasks(ownerId: string): Promise<Task[]>;
   getTasksByBooking(bookingId: string): Promise<Task[]>;
   getTasksByBoard(boardId: string): Promise<Task[]>;
   getTask(id: string): Promise<Task | undefined>;
@@ -198,14 +198,14 @@ export interface IStorage {
   deleteDeliverable(id: string): Promise<boolean>;
   
   // Leads
-  getAllLeads(): Promise<Lead[]>;
+  getAllLeads(ownerId: string): Promise<Lead[]>;
   getLead(id: string): Promise<Lead | undefined>;
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: string, leadData: Partial<InsertLead>): Promise<Lead | undefined>;
   convertLeadToClient(leadId: string): Promise<{ client: Client; proposal: Proposal }>;
   
   // Staff Applications
-  getAllStaffApplications(): Promise<StaffApplication[]>;
+  getAllStaffApplications(ownerId: string): Promise<StaffApplication[]>;
   getStaffApplication(id: string): Promise<StaffApplication | undefined>;
   createStaffApplication(application: InsertStaffApplication): Promise<StaffApplication>;
   updateStaffApplication(id: string, status: string): Promise<StaffApplication | undefined>;
@@ -277,8 +277,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Clients
-  async getAllClients(): Promise<Client[]> {
-    return db.select().from(schema.clients).orderBy(desc(schema.clients.createdAt));
+  async getAllClients(ownerId: string): Promise<Client[]> {
+    return db.select().from(schema.clients)
+      .where(eq(schema.clients.ownerId, ownerId))
+      .orderBy(desc(schema.clients.createdAt));
   }
 
   async getClient(id: string): Promise<Client | undefined> {
@@ -302,8 +304,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Staff
-  async getAllStaff(): Promise<Staff[]> {
-    return db.select().from(schema.staff).orderBy(desc(schema.staff.createdAt));
+  async getAllStaff(ownerId: string): Promise<Staff[]> {
+    return db.select().from(schema.staff)
+      .where(eq(schema.staff.ownerId, ownerId))
+      .orderBy(desc(schema.staff.createdAt));
   }
 
   async getStaff(id: string): Promise<Staff | undefined> {
@@ -327,8 +331,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Proposals
-  async getAllProposals(): Promise<Proposal[]> {
-    return db.select().from(schema.proposals).orderBy(desc(schema.proposals.createdAt));
+  async getAllProposals(ownerId: string): Promise<Proposal[]> {
+    return db.select().from(schema.proposals)
+      .where(eq(schema.proposals.ownerId, ownerId))
+      .orderBy(desc(schema.proposals.createdAt));
   }
 
   async getProposal(id: string): Promise<Proposal | undefined> {
@@ -381,8 +387,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Bookings
-  async getAllBookings(): Promise<Booking[]> {
-    return db.select().from(schema.bookings).orderBy(desc(schema.bookings.startTime));
+  async getAllBookings(ownerId: string): Promise<Booking[]> {
+    return db.select().from(schema.bookings)
+      .where(eq(schema.bookings.ownerId, ownerId))
+      .orderBy(desc(schema.bookings.startTime));
   }
 
   async getBooking(id: string): Promise<Booking | undefined> {
@@ -427,8 +435,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Invoices
-  async getAllInvoices(): Promise<Invoice[]> {
-    return db.select().from(schema.invoices).orderBy(desc(schema.invoices.createdAt));
+  async getAllInvoices(ownerId: string): Promise<Invoice[]> {
+    return db.select().from(schema.invoices)
+      .where(eq(schema.invoices.ownerId, ownerId))
+      .orderBy(desc(schema.invoices.createdAt));
   }
 
   async getInvoice(id: string): Promise<Invoice | undefined> {
@@ -477,8 +487,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payment Settings
-  async getAllPaymentSettings(): Promise<PaymentSettings[]> {
-    return db.select().from(schema.paymentSettings);
+  async getAllPaymentSettings(ownerId: string): Promise<PaymentSettings[]> {
+    return db.select().from(schema.paymentSettings)
+      .where(eq(schema.paymentSettings.ownerId, ownerId));
   }
 
   async getPaymentSettings(processor: string): Promise<PaymentSettings | undefined> {
@@ -498,8 +509,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payment Methods
-  async getAllPaymentMethods(): Promise<PaymentMethod[]> {
-    return db.select().from(schema.paymentMethods).orderBy(schema.paymentMethods.sortOrder);
+  async getAllPaymentMethods(ownerId: string): Promise<PaymentMethod[]> {
+    return db.select().from(schema.paymentMethods)
+      .where(eq(schema.paymentMethods.ownerId, ownerId))
+      .orderBy(schema.paymentMethods.sortOrder);
   }
 
   async updatePaymentMethod(id: string, methodData: Partial<InsertPaymentMethod>): Promise<PaymentMethod | undefined> {
@@ -508,8 +521,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payment Plans
-  async getAllPaymentPlans(): Promise<PaymentPlan[]> {
-    return db.select().from(schema.paymentPlans);
+  async getAllPaymentPlans(ownerId: string): Promise<PaymentPlan[]> {
+    return db.select().from(schema.paymentPlans)
+      .where(eq(schema.paymentPlans.ownerId, ownerId));
   }
 
   async createPaymentPlan(plan: InsertPaymentPlan): Promise<PaymentPlan> {
@@ -538,8 +552,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Booking Questions
-  async getAllBookingQuestions(): Promise<BookingQuestion[]> {
-    return db.select().from(schema.bookingQuestions).orderBy(schema.bookingQuestions.sortOrder);
+  async getAllBookingQuestions(ownerId: string): Promise<BookingQuestion[]> {
+    return db.select().from(schema.bookingQuestions)
+      .where(eq(schema.bookingQuestions.ownerId, ownerId))
+      .orderBy(schema.bookingQuestions.sortOrder);
   }
 
   async createBookingQuestion(question: InsertBookingQuestion): Promise<BookingQuestion> {
@@ -563,8 +579,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Unavailable Notices
-  async getAllUnavailableNotices(): Promise<UnavailableNotice[]> {
-    return db.select().from(schema.unavailableNotices).orderBy(desc(schema.unavailableNotices.startDate));
+  async getAllUnavailableNotices(ownerId: string): Promise<UnavailableNotice[]> {
+    return db.select().from(schema.unavailableNotices)
+      .where(eq(schema.unavailableNotices.ownerId, ownerId))
+      .orderBy(desc(schema.unavailableNotices.startDate));
   }
 
   async createUnavailableNotice(notice: InsertUnavailableNotice): Promise<UnavailableNotice> {
@@ -669,8 +687,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Tasks
-  async getAllTasks(): Promise<Task[]> {
-    return db.select().from(schema.tasks).orderBy(desc(schema.tasks.createdAt));
+  async getAllTasks(ownerId: string): Promise<Task[]> {
+    return db.select().from(schema.tasks)
+      .where(eq(schema.tasks.ownerId, ownerId))
+      .orderBy(desc(schema.tasks.createdAt));
   }
 
   async getTasksByBooking(bookingId: string): Promise<Task[]> {
@@ -911,8 +931,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Leads
-  async getAllLeads(): Promise<Lead[]> {
-    return db.select().from(schema.leads).orderBy(desc(schema.leads.createdAt));
+  async getAllLeads(ownerId: string): Promise<Lead[]> {
+    return db.select().from(schema.leads)
+      .where(eq(schema.leads.ownerId, ownerId))
+      .orderBy(desc(schema.leads.createdAt));
   }
 
   async getLead(id: string): Promise<Lead | undefined> {
@@ -960,8 +982,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Staff Applications
-  async getAllStaffApplications(): Promise<StaffApplication[]> {
-    return db.select().from(schema.staffApplications).orderBy(desc(schema.staffApplications.createdAt));
+  async getAllStaffApplications(ownerId: string): Promise<StaffApplication[]> {
+    return db.select().from(schema.staffApplications)
+      .where(eq(schema.staffApplications.ownerId, ownerId))
+      .orderBy(desc(schema.staffApplications.createdAt));
   }
 
   async getStaffApplication(id: string): Promise<StaffApplication | undefined> {
