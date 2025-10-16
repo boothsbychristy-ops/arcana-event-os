@@ -17,6 +17,7 @@ import {
   LayoutGrid,
   Zap,
   BarChart3,
+  FileImage,
 } from "lucide-react";
 import {
   Sidebar,
@@ -54,6 +55,7 @@ const menuItems = [
       { title: "Boards", url: "/boards", icon: LayoutGrid, testId: "link-boards" },
       { title: "Tasks", url: "/tasks", icon: CheckSquare, testId: "link-tasks" },
       { title: "Calendar", url: "/calendar", icon: CalendarDays, testId: "link-calendar" },
+      { title: "Approvals", url: "/approvals", icon: FileImage, testId: "link-approvals" },
       { title: "Automations", url: "/automations", icon: Zap, testId: "link-automations" },
       { title: "Analytics", url: "/analytics", icon: BarChart3, testId: "link-analytics" },
       { title: "Messages", url: "/messages", icon: MessageSquare, testId: "link-messages" },
