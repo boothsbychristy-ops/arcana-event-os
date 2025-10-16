@@ -1,0 +1,105 @@
+Perfect — you’re thinking exactly like a platform architect now. Phase **11.3** is where the CRM and Studio worlds fuse stylistically and behaviorally.
+
+We’ll install the **AI Design Agent** that automatically creates or revises overlay drafts whenever a client requests changes or a new event is booked.
+And we’ll give the entire front end a **dual-aesthetic system**: *Neon Black-Glass (Empress Default)* ↔ *Light Glass Mode* that syncs with the OS theme or a toggle in the UI.
+
+---
+
+# 📦 `PAYLOAD_PHASE_11_3.json`
+
+```json
+{
+  "version": "11.3.0",
+  "description": "Phase 11.3 — AI Design Agent + Smart Feedback Loop + Light/Dark/System Aesthetic Switch",
+  "changes": [
+    {
+      "path": "server/agents.design.ts",
+      "action": "create",
+      "contents": "import { db } from './db';\nimport * as schema from '../shared/schema';\nimport { log } from './agents';\nimport fetch from 'node-fetch';\nimport { eq } from 'drizzle-orm';\n\n// 🎨 AI Design Agent — generates overlay or backdrop previews\nexport async function designAgent(ownerId: string, approvalId: string, prompt: string){\n  await log(ownerId,'design','Generating overlay draft','info',{approvalId,prompt});\n  try{\n    const body = { model:'flux.1.1-pro', prompt: `${prompt} | high-resolution digital overlay, transparent background, photo booth frame aesthetic` };\n    const r = await fetch('https://api.leonardo.ai/generate', {\n      method:'POST',\n      headers:{ 'Authorization':`Bearer ${process.env.LEONARDO_API_KEY}`,'Content-Type':'application/json' },\n      body:JSON.stringify(body)\n    });\n    const data = await r.json();\n    const imageUrl = data?.output?.[0]?.url || null;\n    if(imageUrl){\n      await db.update(schema.approvals).set({ draftUrl:imageUrl, status:'draft' }).where(eq(schema.approvals.id,approvalId));\n      await log(ownerId,'design','New draft generated','info',{approvalId,imageUrl});\n    } else {\n      await log(ownerId,'design','AI generation returned empty result','warn',{approvalId});\n    }\n  }catch(e){ await log(ownerId,'design','AI generation failed','error',{error:String(e)}); }\n}\n"
+    },
+    {
+      "path": "server/hooks.smartFeedback.ts",
+      "action": "create",
+      "contents": "import { db } from './db';\nimport * as schema from '../shared/schema';\nimport { designAgent } from './agents.design';\nimport { eq } from 'drizzle-orm';\n\n// Hook to listen for approval feedback → trigger designAgent\nexport async function onApprovalFeedback(ownerId: string, approvalId: string){\n  const [row] = await db.select().from(schema.approvals).where(eq(schema.approvals.id,approvalId));\n  if(!row) return;\n  const themeHint = `${row.title} ${row.kind}`;\n  await designAgent(ownerId, approvalId, themeHint);\n}\n"
+    },
+    {
+      "path": "server/routes.approvalShare.ts",
+      "action": "patch",
+      "contents": "// ➕ trigger Smart Feedback Hook after feedback submission\nimport { onApprovalFeedback } from './hooks.smartFeedback';\n\n// In POST /api/approval-feedback/:id after DB update:\n// if(status==='feedback'){ const [row] = await db.select().from(schema.approvals).where(eq(schema.approvals.id, req.params.id)); await onApprovalFeedback(row.ownerId, req.params.id); }\n"
+    },
+    {
+      "path": "client/src/context/ThemeContext.tsx",
+      "action": "create",
+      "contents": "import { createContext, useContext, useEffect, useState } from 'react';\n\nconst ThemeContext = createContext({ theme:'system', setTheme:(t:string)=>{} });\n\nexport function ThemeProvider({ children }: any){\n  const [theme, setTheme] = useState<'light'|'dark'|'system'>('system');\n\n  useEffect(()=>{\n    const root = window.document.documentElement;\n    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;\n    const active = theme === 'system' ? (prefersDark ? 'dark':'light') : theme;\n    root.classList.remove('light','dark');\n    root.classList.add(active);\n  },[theme]);\n\n  return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>;\n}\n\nexport const useTheme = ()=>useContext(ThemeContext);\n"
+    },
+    {
+      "path": "client/src/components/ThemeToggle.tsx",
+      "action": "create",
+      "contents": "import { useTheme } from '../context/ThemeContext';\n\nexport default function ThemeToggle(){\n  const { theme, setTheme } = useTheme();\n  const cycle = ()=>{\n    if(theme==='dark') setTheme('light');\n    else if(theme==='light') setTheme('system');\n    else setTheme('dark');\n  };\n  return (\n    <button onClick={cycle} className=\"rounded-full px-3 py-2 bg-white/10 hover:bg-white/20 text-xs text-neutral-300\">\n      {theme==='system' ? '🖥 System' : theme==='dark' ? '🌑 Dark' : '🌕 Light'}\n    </button>\n  );\n}\n"
+    },
+    {
+      "path": "client/src/main.tsx",
+      "action": "patch",
+      "contents": "// ➕ wrap App with ThemeProvider\nimport { ThemeProvider } from './context/ThemeContext';\n\nReactDOM.createRoot(document.getElementById('root')!).render(\n  <ThemeProvider>\n    <App />\n  </ThemeProvider>\n);\n"
+    },
+    {
+      "path": "client/src/pages/CRM.tsx",
+      "action": "patch",
+      "contents": "// ➕ add ThemeToggle in top right corner of CRM header\n// <div className='flex items-center justify-between'> <h1>...</h1> <ThemeToggle/> </div>\nimport ThemeToggle from '../components/ThemeToggle';\n"
+    },
+    {
+      "path": "client/src/index.css",
+      "action": "patch_or_create",
+      "contents": ":root {\n  --color-bg-dark: #0a0a0a;\n  --color-bg-light: #f9fafb;\n  --color-text-dark: #f3f4f6;\n  --color-text-light: #111827;\n}\n\nhtml.dark body { background-color: var(--color-bg-dark); color: var(--color-text-dark); }\nhtml.light body { background-color: var(--color-bg-light); color: var(--color-text-light); }\n\n/* Neon Glass styling (both themes adjust alpha levels) */\n.glass {\n  background: rgba(255,255,255,0.05);\n  border: 1px solid rgba(255,255,255,0.1);\n  backdrop-filter: blur(12px);\n}\nhtml.light .glass {\n  background: rgba(255,255,255,0.65);\n  border-color: rgba(0,0,0,0.1);\n  color: #111;\n}\n"
+    },
+    {
+      "path": ".env.example",
+      "action": "patch",
+      "contents": "LEONARDO_API_KEY=your_leonardo_api_key\n"
+    }
+  ]
+}
+```
+
+---
+
+## 🎨 What this payload introduces
+
+### 1. **AI Design Agent**
+
+* Hooks into Leonardo or another image generator to create overlays and backdrops.
+* Auto-triggers when:
+
+  * A client rejects an approval (`status: feedback`)
+  * A new event booking is created (optional hook you can add later)
+
+### 2. **Smart Feedback Loop**
+
+* When the client presses *“Request Changes”* on the public share page, Empress OS quietly sends that approval back into the queue, regenerates a new overlay draft, and updates the record with a fresh `draftUrl`.
+
+### 3. **Theme System (Light / Dark / System)**
+
+* New global `ThemeContext` + `ThemeToggle` button in top-right of CRM and all child views.
+* Adapts automatically to system preference (`prefers-color-scheme`).
+* Extends your *black-glass* look to *white-glass* with same neon edges.
+* Uses Tailwind/utility classes already in Empress Aesthetic (no extra library).
+
+---
+
+## 🧪 Smoke tests
+
+1. Visit `/crm` → confirm toggle cycles 🌑 Dark / 🌕 Light / 🖥 System.
+2. Client requests changes → new `agent_logs` row with agent=`design`.
+3. After 1–2 minutes, `draftUrl` updates and appears in Approvals view.
+
+---
+
+## 🔮 Phase 11.4 Preview — “Visual Libraries & AI Background Picker”
+
+Next up:
+
+* Embed PB Backdrops & Paddee widgets into the Approvals screen.
+* Add a *“Choose Background / Template”* modal that writes selections back to `assetsJson`.
+* Integrate the AI Design Agent’s outputs into the same gallery for one-click replacement.
+
+Would you like me to generate **Phase 11.4 — Background Picker + Widget Embeds** next?

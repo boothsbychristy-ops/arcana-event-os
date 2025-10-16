@@ -1,0 +1,93 @@
+Excellent. Phase **11.4** is where your Event CRM officially becomes a creative collaboration platform — clients can **choose, preview, and approve visuals** directly inside Empress OS.
+
+We’ll integrate **PB Backdrops** and **Paddee template libraries**, build the **AI Background Picker**, and make it all fit your *black-glass / light-glass* dual aesthetic.
+Everything will live right inside the **Approvals Center** you built earlier — no context switching, no external tabs, full Empress vibe.
+
+---
+
+# 📦 `PAYLOAD_PHASE_11_4.json`
+
+```json
+{
+  "version": "11.4.0",
+  "description": "Phase 11.4 — Background Picker + Widget Embeds + AI Preview Integration",
+  "changes": [
+    {
+      "path": "client/src/components/EmbedFrame.tsx",
+      "action": "create",
+      "contents": "export default function EmbedFrame({ src, title }: {src: string; title: string;}){\n  return (\n    <div className=\"rounded-2xl glass overflow-hidden border border-white/10 h-[600px]\">\n      <iframe src={src} title={title} className=\"w-full h-full border-0\" allow=\"fullscreen\"></iframe>\n    </div>\n  );\n}"
+    },
+    {
+      "path": "client/src/components/BackgroundPicker.tsx",
+      "action": "create",
+      "contents": "import { useState } from 'react';\n\nexport default function BackgroundPicker({ onSelect }: { onSelect:(url:string)=>void; }){\n  const [aiPrompt,setPrompt] = useState('');\n  const [preview,setPreview] = useState<string|null>(null);\n\n  async function generate(){\n    const r = await fetch('/api/ai/background', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ prompt: aiPrompt })});\n    const data = await r.json();\n    setPreview(data.url);\n  }\n\n  return (\n    <div className=\"p-4\">\n      <h3 className=\"font-medium text-lg mb-2\">AI Background Picker</h3>\n      <input value={aiPrompt} onChange={e=>setPrompt(e.target.value)} placeholder=\"Describe the vibe...\" className=\"w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 mb-3 text-sm\"/>\n      <div className=\"flex gap-3\">\n        <button onClick={generate} className=\"px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-sm\">Generate</button>\n        {preview && <button onClick={()=>onSelect(preview)} className=\"px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-sm\">Use This</button>}\n      </div>\n      {preview && <img src={preview} className=\"mt-4 rounded-xl border border-white/10\"/>}\n    </div>\n  );\n}"
+    },
+    {
+      "path": "server/routes.aiBackground.ts",
+      "action": "create",
+      "contents": "import { Router } from 'express';\nimport fetch from 'node-fetch';\n\nconst r = Router();\n\nr.post('/api/ai/background', async (req, res) => {\n  const { prompt } = req.body;\n  if(!prompt) return res.status(400).json({error:'missing prompt'});\n  try{\n    const body = { model:'flux.1.1-pro', prompt:`${prompt}, ultra high resolution, realistic photographic backdrop, soft lighting, no text` };\n    const resp = await fetch('https://api.leonardo.ai/generate', {\n      method:'POST', headers:{'Authorization':`Bearer ${process.env.LEONARDO_API_KEY}`,'Content-Type':'application/json'}, body:JSON.stringify(body)\n    });\n    const data = await resp.json();\n    const url = data?.output?.[0]?.url || null;\n    if(!url) return res.status(500).json({error:'no image'});\n    res.json({ url });\n  }catch(e){ res.status(500).json({ error:String(e) }); }\n});\n\nexport default r;\n"
+    },
+    {
+      "path": "server/index.ts",
+      "action": "patch",
+      "contents": "// ➕ mount AI Background route\nimport aiBackground from './routes.aiBackground';\napp.use(aiBackground);\n"
+    },
+    {
+      "path": "client/src/pages/Approvals.tsx",
+      "action": "patch",
+      "contents": "// ➕ new imports\nimport EmbedFrame from '../components/EmbedFrame';\nimport BackgroundPicker from '../components/BackgroundPicker';\n\n// Inside Approvals() component, after header:\n// <div className='mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6'>\n//   <EmbedFrame src='https://pbbackdrops.com/collections/all?view=embed' title='PB Backdrops'/>\n//   <EmbedFrame src='https://paddee.io/embed/templates' title='Paddee Templates'/>\n// </div>\n// <div className='mt-6'> <BackgroundPicker onSelect={(url)=>alert(`Selected AI background: ${url}`)} /> </div>\n"
+    },
+    {
+      "path": "client/src/pages/CRM.tsx",
+      "action": "patch",
+      "contents": "// ➕ link to Approvals + Picker from Quick Actions\n// <li><a className='text-pink-400 hover:underline' href='/approvals'>Open Approvals Center</a></li>\n// <li><a className='text-pink-400 hover:underline' href='/approvals#background'>Pick Backgrounds</a></li>\n"
+    },
+    {
+      "path": "client/src/index.css",
+      "action": "patch",
+      "contents": "/* Fine-tune iframe and picker glass aesthetic */\niframe { background-color: transparent; }\nhtml.light iframe { background-color: #fff; }\n"
+    }
+  ]
+}
+```
+
+---
+
+## 🌈 What Phase 11.4 adds
+
+**1. Embedded Creative Libraries**
+
+* Two iframe components (`EmbedFrame`) bring **PB Backdrops** and **Paddee Templates** right into the Approvals workspace.
+* Each is wrapped in glass panels matching the Empress AI Studio aesthetic (light/dark adaptive).
+
+**2. AI Background Picker**
+
+* Users can describe the mood or theme (“sunset ballroom with rose gold tones”) → Leonardo generates a background preview → user clicks **Use This** to attach it.
+* For now it simply shows the selected URL — next payload will store it into the `approvals.assetsJson`.
+
+**3. UI Harmony**
+
+* Approvals Center now becomes a three-panel creative hub:
+  **Templates | Backdrops | AI Backgrounds** — all in black-glass or light-glass with pink neon outlines.
+
+---
+
+## 🧪 Smoke checks
+
+1. Visit `/approvals`
+   → scroll down to see PB Backdrops + Paddee Templates embeds.
+2. Type a prompt in **AI Background Picker** → click *Generate* → see image → click *Use This* → alert shows selected URL.
+3. Toggle between light/dark/system — embeds adapt background correctly.
+
+---
+
+## 🔮 Phase 11.5 Preview — “Asset Persistence + Client Portal Uploads”
+
+Next payload will:
+
+* Save selected AI backgrounds into `approvals.assetsJson`.
+* Let clients upload logos or inspo images securely from their share link.
+* Display chosen assets back in the admin Approvals view.
+* Add a download/preview gallery grid with glass-hover effects.
+
+Would you like me to generate **Phase 11.5 – Asset Persistence + Client Upload Portal** next?
