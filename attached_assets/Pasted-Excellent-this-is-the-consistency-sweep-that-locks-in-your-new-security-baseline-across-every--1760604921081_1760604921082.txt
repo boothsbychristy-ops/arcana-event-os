@@ -1,0 +1,212 @@
+Excellent — this is the “consistency sweep” that locks in your new security baseline across *every* entity. You already saw how the `deleteClient` fix worked; now we’ll replicate that logic systematically so no delete call silently succeeds on zero rows.
+
+Here’s how to patch each function in **`server/storage.ts`** (or wherever your data helpers live).
+
+---
+
+## 🧩 1. Universal Delete Template
+
+Every delete should return a boolean indicating if any rows were affected:
+
+```ts
+import { and, eq } from "drizzle-orm";
+import * as schema from "../shared/schema";
+import { db } from "./db";
+
+export async function deleteX(table, id, ownerId) {
+  const result = await db.delete(table)
+    .where(and(eq(table.id, id), eq(table.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+```
+
+You’ll use this pattern for every entity type that has `ownerId`.
+
+---
+
+## 🧱 2. Entity-Specific Functions
+
+Replace your current delete methods with these (drop them right into `storage.ts`).
+
+```ts
+// --- CLIENTS ---
+export async function deleteClient(id: string, ownerId: string) {
+  const result = await db.delete(schema.clients)
+    .where(and(eq(schema.clients.id, id), eq(schema.clients.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+// --- PROPOSALS ---
+export async function deleteProposal(id: string, ownerId: string) {
+  const result = await db.delete(schema.proposals)
+    .where(and(eq(schema.proposals.id, id), eq(schema.proposals.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+// --- BOOKINGS ---
+export async function deleteBooking(id: string, ownerId: string) {
+  const result = await db.delete(schema.bookings)
+    .where(and(eq(schema.bookings.id, id), eq(schema.bookings.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+// --- INVOICES ---
+export async function deleteInvoice(id: string, ownerId: string) {
+  const result = await db.delete(schema.invoices)
+    .where(and(eq(schema.invoices.id, id), eq(schema.invoices.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+// --- PAYMENTS ---
+export async function deletePayment(id: string, ownerId: string) {
+  const result = await db.delete(schema.payments)
+    .where(and(eq(schema.payments.id, id), eq(schema.payments.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+// --- STAFF ---
+export async function deleteStaff(id: string, ownerId: string) {
+  const result = await db.delete(schema.staff)
+    .where(and(eq(schema.staff.id, id), eq(schema.staff.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+// --- ASSETS ---
+export async function deleteAsset(id: string, ownerId: string) {
+  const result = await db.delete(schema.assets)
+    .where(and(eq(schema.assets.id, id), eq(schema.assets.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+// --- TASKS ---
+export async function deleteTask(id: string, ownerId: string) {
+  const result = await db.delete(schema.tasks)
+    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+// --- BOOKING STAFF ---
+export async function deleteBookingStaff(id: string, ownerId: string) {
+  // If you added ownerId column:
+  const result = await db.delete(schema.bookingStaff)
+    .where(and(eq(schema.bookingStaff.id, id), eq(schema.bookingStaff.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+
+  // If you did *not* add ownerId, replace with join via bookings → bookings.ownerId
+}
+```
+
+---
+
+## 🧩 3. Route Handlers — Consistent Response Logic
+
+In each route file (`routes/clients.ts`, `routes/bookings.ts`, etc.), update the DELETE endpoint to check `success`:
+
+```ts
+router.delete("/:id", async (req, res) => {
+  const success = await storage.deleteClient(req.params.id, req.user!.id);
+  if (!success) return res.status(404).json({ error: "Not found" });
+  res.json({ ok: true });
+});
+```
+
+Repeat for every entity.
+
+---
+
+## 🧩 4. Join-Based Deletes (for child tables with no ownerId)
+
+For tables like `booking_questions` or `unavailable_notices` that don’t have an `ownerId`, enforce ownership through a join:
+
+```ts
+export async function deleteBookingQuestion(id: string, ownerId: string) {
+  const result = await db.delete(schema.booking_questions)
+    .where(eq(schema.booking_questions.id, id))
+    .whereExists(
+      db.select({}).from(schema.bookings)
+        .where(and(
+          eq(schema.bookings.id, schema.booking_questions.bookingId),
+          eq(schema.bookings.ownerId, ownerId)
+        ))
+    );
+  return result.rowCount !== null && result.rowCount > 0;
+}
+```
+
+Drizzle doesn’t yet have `.whereExists` sugar, so if needed, first check via `getOwnedBookingQuestion` then call `delete` only if it returns a row.
+
+---
+
+## 🧩 5. Regression Tests for Delete
+
+Add these to your Supertest suite:
+
+```ts
+it("blocks cross-tenant delete for bookings", async () => {
+  const a = await loginAs("a@x.com");
+  const b = await loginAs("b@x.com");
+  const { id } = await createBooking(a.token);
+  await request(app)
+    .delete(`/api/bookings/${id}`)
+    .set("Authorization", `Bearer ${b.token}`)
+    .expect(404);
+});
+
+it("returns 404 when deleting non-existent invoice", async () => {
+  const token = await loginAs("x@y.com");
+  await request(app)
+    .delete("/api/invoices/nonexistentid")
+    .set("Authorization", `Bearer ${token}`)
+    .expect(404);
+});
+```
+
+---
+
+## 🧩 6. Optional Refactor (DRY)
+
+If you want fewer repetitive blocks, you can define a generic helper:
+
+```ts
+export async function deleteOwnedRecord<T>(
+  table: any,
+  id: string,
+  ownerId: string
+) {
+  const result = await db.delete(table)
+    .where(and(eq(table.id, id), eq(table.ownerId, ownerId)));
+  return result.rowCount !== null && result.rowCount > 0;
+}
+```
+
+Then simply:
+
+```ts
+export const deleteClient = (id, ownerId) => deleteOwnedRecord(schema.clients, id, ownerId);
+export const deleteProposal = (id, ownerId) => deleteOwnedRecord(schema.proposals, id, ownerId);
+```
+
+---
+
+## 🧩 7. Verify in Replit Console
+
+Run:
+
+```
+npm run test
+```
+
+or your equivalent command. Expected output:
+
+```
+✓ User A can delete their own clients
+✓ User B cannot delete User A’s clients (404)
+✓ Returns 404 when ID not found
+✓ All DELETE tests passed
+```
+
+---
+
+Once this sweep is complete, Rainbow CRM’s data-layer consistency will be bulletproof: every CRUD route respects tenant ownership, every delete reports its success accurately, and the frontend can trust that a 404 truly means “no permission or no record.”
+
+Would you like me to generate the patch for the **join-based deletes** (the ones that don’t have ownerId, like `booking_questions` and `unavailable_notices`) next, so they match this pattern too?
