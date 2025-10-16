@@ -83,7 +83,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication
   app.post("/api/auth/signup", async (req, res) => {
     try {
-      const data = signupSchema.parse(req.body);
+      const data = signupSchema.strict().parse(req.body);
       
       // Check if user already exists
       const existingUser = await storage.getUserByEmail(data.email);
@@ -124,7 +124,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const data = loginSchema.parse(req.body);
+      const data = loginSchema.strict().parse(req.body);
 
       // Find user by email
       const user = await storage.getUserByEmail(data.email);
@@ -182,7 +182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: z.enum(["owner", "admin", "staff", "client"])
       });
       
-      const data = roleUpdateSchema.parse(req.body);
+      const data = roleUpdateSchema.strict().parse(req.body);
       const userId = req.params.id;
       
       const updatedUser = await storage.updateUser(userId, { role: data.role });
@@ -208,7 +208,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid submission" });
       }
 
-      const data = insertLeadSchema.parse(req.body);
+      const data = insertLeadSchema.strict().parse(req.body);
       
       // Require ownerId in request for multi-tenant support
       // In production, this would come from the subdomain or public booking page context
@@ -233,7 +233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid submission" });
       }
 
-      const data = insertStaffApplicationSchema.parse(req.body);
+      const data = insertStaffApplicationSchema.strict().parse(req.body);
       
       // Require ownerId in request for multi-tenant support
       if (!data.ownerId) {
@@ -305,7 +305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/clients", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertClientSchema.parse({
+      const data = insertClientSchema.strict().parse({
         ...req.body,
         ownerId: req.user!.id
       });
@@ -321,7 +321,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/clients/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertClientSchema.partial().parse(req.body);
+      const data = insertClientSchema.partial().strict().parse(req.body);
       const client = await storage.updateClient(req.params.id, req.user!.id, data);
       if (!client) {
         return res.status(404).json({ error: "Client not found" });
@@ -382,7 +382,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         data.userId = user.id;
       }
       
-      const validatedData = insertStaffSchema.parse(data);
+      const validatedData = insertStaffSchema.strict().parse(data);
       const staff = await storage.createStaff(validatedData);
       res.json(staff);
     } catch (error) {
@@ -395,7 +395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/staff/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertStaffSchema.partial().parse(req.body);
+      const data = insertStaffSchema.partial().strict().parse(req.body);
       const staff = await storage.updateStaff(req.params.id, req.user!.id, data);
       if (!staff) {
         return res.status(404).json({ error: "Staff not found" });
@@ -433,7 +433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/proposals", async (req, res) => {
     try {
-      const data = insertProposalSchema.parse(req.body);
+      const data = insertProposalSchema.strict().parse(req.body);
       const proposal = await storage.createProposal(data);
       res.json(proposal);
     } catch (error) {
@@ -446,7 +446,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/proposals/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertProposalSchema.partial().parse(req.body);
+      const data = insertProposalSchema.partial().strict().parse(req.body);
       const proposal = await storage.updateProposal(req.params.id, req.user!.id, data);
       if (!proposal) {
         return res.status(404).json({ error: "Proposal not found" });
@@ -496,7 +496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/bookings", async (req, res) => {
     try {
-      const data = insertBookingSchema.parse(req.body);
+      const data = insertBookingSchema.strict().parse(req.body);
       const booking = await storage.createBooking(data);
       res.json(booking);
     } catch (error) {
@@ -509,7 +509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/bookings/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertBookingSchema.partial().parse(req.body);
+      const data = insertBookingSchema.partial().strict().parse(req.body);
       const booking = await storage.updateBooking(req.params.id, req.user!.id, data);
       if (!booking) {
         return res.status(404).json({ error: "Booking not found" });
@@ -535,7 +535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/bookings/:id/staff", authMiddleware, async (req, res) => {
     try {
-      const data = insertBookingStaffSchema.parse({ ...req.body, bookingId: req.params.id });
+      const data = insertBookingStaffSchema.strict().parse({ ...req.body, bookingId: req.params.id });
       const assignment = await storage.assignStaffToBooking(data);
       res.json(assignment);
     } catch (error) {
@@ -599,7 +599,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/invoices", authMiddleware, async (req, res) => {
     try {
-      const data = insertInvoiceSchema.parse(req.body);
+      const data = insertInvoiceSchema.strict().parse(req.body);
       const invoice = await storage.createInvoice(data);
       res.json(invoice);
     } catch (error) {
@@ -651,7 +651,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/invoices/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertInvoiceSchema.partial().parse(req.body);
+      const data = insertInvoiceSchema.partial().strict().parse(req.body);
       const invoice = await storage.updateInvoice(req.params.id, req.user!.id, data);
       if (!invoice) {
         return res.status(404).json({ error: "Invoice not found" });
@@ -677,7 +677,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/invoices/:id/items", async (req, res) => {
     try {
-      const data = insertInvoiceItemSchema.parse({ ...req.body, invoiceId: req.params.id });
+      const data = insertInvoiceItemSchema.strict().parse({ ...req.body, invoiceId: req.params.id });
       const item = await storage.createInvoiceItem(data);
       res.json(item);
     } catch (error) {
@@ -700,7 +700,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payments", async (req, res) => {
     try {
-      const data = insertPaymentSchema.parse(req.body);
+      const data = insertPaymentSchema.strict().parse(req.body);
       const payment = await storage.createPayment(data);
       res.json(payment);
     } catch (error) {
@@ -723,7 +723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payment-settings", async (req, res) => {
     try {
-      const data = insertPaymentSettingsSchema.parse(req.body);
+      const data = insertPaymentSettingsSchema.strict().parse(req.body);
       const settings = await storage.upsertPaymentSettings(data);
       res.json(settings);
     } catch (error) {
@@ -768,7 +768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payment-plans", async (req, res) => {
     try {
-      const data = insertPaymentPlanSchema.parse(req.body);
+      const data = insertPaymentPlanSchema.strict().parse(req.body);
       const plan = await storage.createPaymentPlan(data);
       res.json(plan);
     } catch (error) {
@@ -791,7 +791,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/booking-engine-settings", async (req, res) => {
     try {
-      const data = insertBookingEngineSettingsSchema.parse(req.body);
+      const data = insertBookingEngineSettingsSchema.strict().parse(req.body);
       const settings = await storage.upsertBookingEngineSettings(data);
       res.json(settings);
     } catch (error) {
@@ -814,7 +814,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/booking-questions", async (req, res) => {
     try {
-      const data = insertBookingQuestionSchema.parse(req.body);
+      const data = insertBookingQuestionSchema.strict().parse(req.body);
       const question = await storage.createBookingQuestion(data);
       res.json(question);
     } catch (error) {
@@ -849,7 +849,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/unavailable-notices", async (req, res) => {
     try {
-      const data = insertUnavailableNoticeSchema.parse(req.body);
+      const data = insertUnavailableNoticeSchema.strict().parse(req.body);
       const notice = await storage.createUnavailableNotice(data);
       res.json(notice);
     } catch (error) {
@@ -884,7 +884,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/privacy-settings", async (req, res) => {
     try {
-      const data = insertPrivacySettingsSchema.parse(req.body);
+      const data = insertPrivacySettingsSchema.strict().parse(req.body);
       const settings = await storage.upsertPrivacySettings(data);
       res.json(settings);
     } catch (error) {
@@ -919,7 +919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/boards", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertBoardSchema.parse({ ...req.body, ownerId: req.user!.id });
+      const data = insertBoardSchema.strict().parse({ ...req.body, ownerId: req.user!.id });
       const board = await storage.createBoard(data);
       res.json(board);
     } catch (error) {
@@ -932,7 +932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/boards/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertBoardSchema.partial().parse(req.body);
+      const data = insertBoardSchema.partial().strict().parse(req.body);
       const board = await storage.updateBoard(req.params.id, req.user!.id, data);
       if (!board) {
         return res.status(404).json({ error: "Board not found" });
@@ -961,7 +961,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Board Groups
   app.post("/api/boards/:id/groups", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertBoardGroupSchema.parse({ ...req.body, boardId: req.params.id });
+      const data = insertBoardGroupSchema.strict().parse({ ...req.body, boardId: req.params.id });
       const group = await storage.createBoardGroup(data);
       res.json(group);
     } catch (error) {
@@ -974,7 +974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/boards/:id/groups/:groupId", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertBoardGroupSchema.partial().parse(req.body);
+      const data = insertBoardGroupSchema.partial().strict().parse(req.body);
       const group = await storage.updateBoardGroup(req.params.groupId, data);
       if (!group) {
         return res.status(404).json({ error: "Group not found" });
@@ -1003,7 +1003,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Task Statuses
   app.post("/api/boards/:id/statuses", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertTaskStatusSchema.parse({ ...req.body, boardId: req.params.id });
+      const data = insertTaskStatusSchema.strict().parse({ ...req.body, boardId: req.params.id });
       const status = await storage.createTaskStatus(data);
       res.json(status);
     } catch (error) {
@@ -1062,7 +1062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user!;
       const ownerId = user.id; // For owners, id IS ownerId. For staff, they create tasks under owner's account
       
-      const data = insertTaskSchema.parse(req.body);
+      const data = insertTaskSchema.strict().parse(req.body);
       const task = await storage.createTask({ ...data, ownerId });
 
       // Trigger task.created automation
@@ -1097,7 +1097,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/tasks/:id", async (req, res) => {
     try {
       const oldTask = await storage.getTask(req.params.id);
-      const data = insertTaskSchema.partial().parse(req.body);
+      const data = insertTaskSchema.partial().strict().parse(req.body);
       const task = await storage.updateTask(req.params.id, data);
       if (!task) {
         return res.status(404).json({ error: "Task not found" });
@@ -1150,7 +1150,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/tasks/:taskId/comments", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertTaskCommentSchema.parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
+      const data = insertTaskCommentSchema.strict().parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
       const comment = await storage.createTaskComment(data);
       res.json(comment);
     } catch (error) {
@@ -1163,7 +1163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/tasks/:taskId/comments/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertTaskCommentSchema.partial().parse(req.body);
+      const data = insertTaskCommentSchema.partial().strict().parse(req.body);
       const comment = await storage.updateTaskComment(req.params.id, data);
       if (!comment) {
         return res.status(404).json({ error: "Comment not found" });
@@ -1201,7 +1201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/tasks/:taskId/attachments", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertTaskAttachmentSchema.parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
+      const data = insertTaskAttachmentSchema.strict().parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
       const attachment = await storage.createTaskAttachment(data);
       res.json(attachment);
     } catch (error) {
@@ -1236,7 +1236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/tasks/:taskId/subtasks", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertSubtaskSchema.parse({ ...req.body, taskId: req.params.taskId });
+      const data = insertSubtaskSchema.strict().parse({ ...req.body, taskId: req.params.taskId });
       const subtask = await storage.createSubtask(data);
       res.json(subtask);
     } catch (error) {
@@ -1249,7 +1249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/tasks/:taskId/subtasks/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertSubtaskSchema.partial().parse(req.body);
+      const data = insertSubtaskSchema.partial().strict().parse(req.body);
       const subtask = await storage.updateSubtask(req.params.id, data);
       if (!subtask) {
         return res.status(404).json({ error: "Subtask not found" });
@@ -1287,7 +1287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/tasks/:taskId/activity", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertTaskActivitySchema.parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
+      const data = insertTaskActivitySchema.strict().parse({ ...req.body, taskId: req.params.taskId, userId: req.user!.id });
       const activity = await storage.createTaskActivity(data);
       res.json(activity);
     } catch (error) {
@@ -1310,7 +1310,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/boards/:boardId/members", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertBoardMemberSchema.parse({ ...req.body, boardId: req.params.boardId });
+      const data = insertBoardMemberSchema.strict().parse({ ...req.body, boardId: req.params.boardId });
       const member = await storage.addBoardMember(data);
       res.json(member);
     } catch (error) {
@@ -1323,7 +1323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/boards/:boardId/members/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const data = insertBoardMemberSchema.partial().parse(req.body);
+      const data = insertBoardMemberSchema.partial().strict().parse(req.body);
       const member = await storage.updateBoardMember(req.params.id, data);
       if (!member) {
         return res.status(404).json({ error: "Member not found" });
@@ -1446,7 +1446,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/messages", async (req, res) => {
     try {
-      const data = insertMessageSchema.parse(req.body);
+      const data = insertMessageSchema.strict().parse(req.body);
       const message = await storage.createMessage(data);
       res.json(message);
     } catch (error) {
