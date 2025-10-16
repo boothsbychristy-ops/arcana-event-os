@@ -366,6 +366,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     const booking: InsertBooking = {
+      ownerId: proposal.ownerId,
       clientId: proposal.clientId,
       proposalId: proposal.id,
       title: proposal.title,
@@ -373,10 +374,7 @@ export class DatabaseStorage implements IStorage {
       status: "confirmed",
       startTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default to 1 week from now
       endTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000), // 4 hours duration
-      venueName: "",
-      venueAddress: "",
-      packageTotal: proposal.amount,
-      balanceDue: proposal.amount,
+      notes: `Converted from proposal: ${proposal.description || ''}`,
     };
 
     return this.createBooking(booking);
@@ -833,11 +831,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateSubtask(id: string, subtaskData: Partial<InsertSubtask>): Promise<Subtask | undefined> {
-    const updates = { ...subtaskData };
-    if (subtaskData.isCompleted && !subtaskData.completedAt) {
+    const updates: any = { ...subtaskData };
+    if (subtaskData.isCompleted && !(updates.completedAt)) {
       updates.completedAt = new Date();
     } else if (subtaskData.isCompleted === false) {
-      updates.completedAt = null as any;
+      updates.completedAt = null;
     }
     const [subtask] = await db.update(schema.subtasks).set(updates).where(eq(schema.subtasks.id, id)).returning();
     return subtask;
@@ -938,14 +936,16 @@ export class DatabaseStorage implements IStorage {
 
     // Create client from lead
     const client = await this.createClient({
+      ownerId: lead.ownerId,
       fullName: `${lead.firstName} ${lead.lastName}`,
       email: lead.email,
-      phone: lead.phone,
-      notes: lead.notes,
+      phone: lead.phone ?? null,
+      notes: lead.notes ?? null,
     });
 
     // Create proposal from lead
     const proposal = await this.createProposal({
+      ownerId: lead.ownerId,
       clientId: client.id,
       title: `Event Proposal - ${lead.firstName} ${lead.lastName}`,
       description: lead.notes || "Auto-generated from lead registration",
@@ -1000,8 +1000,9 @@ export class DatabaseStorage implements IStorage {
 
     // Create staff profile
     const staff = await this.createStaff({
+      ownerId: application.ownerId,
       userId: user.id,
-      bio: application.experience,
+      bio: application.experience ?? null,
       skills: [],
       isActive: true,
     });
@@ -1201,7 +1202,7 @@ export class DatabaseStorage implements IStorage {
     const allStaffUsers = await db.select()
       .from(schema.staff)
       .innerJoin(schema.users, eq(schema.staff.userId, schema.users.id))
-      .where(eq(schema.users.ownerId, ownerId));
+      .where(eq(schema.staff.ownerId, ownerId));
     
     const uniqueStaffAssigned = new Set();
     for (const bwc of bookingsWithClients) {
@@ -1281,7 +1282,7 @@ export class DatabaseStorage implements IStorage {
     const staffWithUsers = await db.select()
       .from(schema.staff)
       .innerJoin(schema.users, eq(schema.staff.userId, schema.users.id))
-      .where(eq(schema.users.ownerId, ownerId));
+      .where(eq(schema.staff.ownerId, ownerId));
     
     const results = await Promise.all(staffWithUsers.map(async ({ staff: staffMember, users: user }) => {
       // Count bookings
