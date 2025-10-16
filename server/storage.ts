@@ -939,8 +939,8 @@ export class DatabaseStorage implements IStorage {
       ownerId: lead.ownerId,
       fullName: `${lead.firstName} ${lead.lastName}`,
       email: lead.email,
-      phone: lead.phone ?? null,
-      notes: lead.notes ?? null,
+      phone: lead.phone || null,
+      notes: lead.notes || null,
     });
 
     // Create proposal from lead

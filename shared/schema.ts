@@ -25,8 +25,8 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Clients table with referral tracking
-export const clients: any = pgTable("clients", {
+// Clients table with referral tracking  
+export const clients = pgTable("clients", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   userId: varchar("user_id").references(() => users.id),
