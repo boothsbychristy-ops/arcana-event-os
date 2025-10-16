@@ -142,3 +142,6 @@ app.use((req, res, next) => {
     });
   });
 })();
+
+// Export app for testing
+export default app;
