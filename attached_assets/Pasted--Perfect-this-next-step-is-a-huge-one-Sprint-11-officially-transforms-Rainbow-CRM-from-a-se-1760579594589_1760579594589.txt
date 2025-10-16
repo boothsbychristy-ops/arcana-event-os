@@ -1,0 +1,184 @@
+🔥 Perfect — this next step is a huge one. Sprint 11 officially transforms **Rainbow CRM** from a service app into a *creative ecosystem*.
+
+Below is your **ready-to-paste Replit Architect Payload** for **Sprint 11 — Mirror Marketplace & Asset Library**.
+It connects everything you’ve built (branding, automations, calendar, analytics) to a real-time asset marketplace — for backdrops, photo-booth templates, prompt packs, or any digital deliverable your users want to trade or sell.
+
+---
+
+## 🧩 **Payload — Rainbow CRM: Mirror Marketplace & Asset Library (Sprint 11)**
+
+````
+Create a new Sprint called "Mirror Marketplace & Asset Library (Sprint 11)" for Project Rainbow CRM.
+
+🎯 GOAL  
+Add a full marketplace and asset-library system so event professionals can:
+• Upload & manage digital assets (backdrops, templates, AI prompts, graphics)  
+• Share privately with teams or publicly on the Mirror Marketplace  
+• Set prices or download rules (“free with credit,” “license required,” etc.)  
+• Preview assets and install them into bookings or design collections  
+• Integrate with existing brands & owner accounts for revenue tracking
+
+---
+
+🧠 DATABASE MIGRATIONS
+```sql
+create table if not exists assets (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  brand_id uuid references brands(id) on delete set null,
+  title text not null,
+  description text,
+  category text check (category in ('backdrop','template','prompt','photo','misc')),
+  file_url text not null,
+  thumbnail_url text,
+  tags text[],
+  price numeric(10,2) default 0,
+  currency text default 'USD',
+  visibility text default 'private', -- 'private' | 'team' | 'public'
+  license_type text default 'standard', -- 'standard' | 'commercial' | 'editorial'
+  downloads integer default 0,
+  likes integer default 0,
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+create table if not exists asset_orders (
+  id uuid primary key default gen_random_uuid(),
+  asset_id uuid references assets(id) on delete cascade,
+  buyer_id uuid references users(id) on delete cascade,
+  price numeric(10,2),
+  currency text,
+  status text default 'completed',
+  created_at timestamptz default now()
+);
+````
+
+Add indexes on `assets(owner_id)`, `assets(category)`, `assets(tags)`, and `asset_orders(buyer_id)`.
+
+---
+
+⚙️ SERVER ROUTES (`/server/routes/marketplace.js`)
+1️⃣ `GET /api/marketplace/assets?category=&tag=&brand_id=&visibility=`
+ Returns public assets filtered by params.
+
+2️⃣ `GET /api/marketplace/assets/:id`
+ Fetch asset detail with owner info and license terms.
+
+3️⃣ `POST /api/marketplace/assets` (JWT required)
+ Upload new asset (metadata + file URL). Use existing upload middleware.
+
+4️⃣ `PATCH /api/marketplace/assets/:id` → edit fields (title, price, tags, visibility).
+
+5️⃣ `DELETE /api/marketplace/assets/:id` → soft delete (`is_active=false`).
+
+6️⃣ `POST /api/marketplace/purchase/:id`
+ → Creates `asset_orders` row (simulate payment now; Square integration later).
+
+7️⃣ `GET /api/marketplace/my-assets` → assets uploaded by current user.
+8️⃣ `GET /api/marketplace/my-purchases` → assets purchased by current user.
+
+All routes tenant-scoped by `owner_id` and respect visibility rules.
+
+---
+
+💾 SERVER HELPERS
+`/server/lib/licensing.js`
+
+```js
+export function checkLicense(asset, user) {
+  if (asset.visibility === 'public') return true;
+  if (asset.visibility === 'team' && asset.owner_id === user.owner_id) return true;
+  return asset.owner_id === user.id;
+}
+```
+
+`/server/lib/paymentSim.js`
+
+```js
+export async function simulatePurchase(asset, buyer, db) {
+  await db.query(
+    "insert into asset_orders(asset_id,buyer_id,price,currency) values($1,$2,$3,$4)",
+    [asset.id, buyer.id, asset.price, asset.currency]
+  );
+  await db.query("update assets set downloads=downloads+1 where id=$1", [asset.id]);
+  return {ok:true};
+}
+```
+
+---
+
+🎨 CLIENT (UI)
+Add two new pages:
+
+**1️⃣ AssetLibraryPage.jsx**
+
+* Table of user’s assets with upload button
+* “+ Upload Asset” modal: title, description, category, file upload, tags, visibility, price
+* Edit/Delete actions
+
+**2️⃣ MarketplacePage.jsx**
+
+* Public grid view with filters (category, tags, brand) and search bar
+* Card design with: thumbnail, title, owner badge, price pill, ❤️ likes, 🡇 downloads
+* Click → opens `AssetDetailDrawer` with preview, license info, download/purchase button
+* “Install to My Library” if already purchased or free
+
+Add routes to sidebar (visible to all roles).
+
+---
+
+🎨 STYLE
+
+* Use rainbow gradient frames for asset cards.
+* Add hover shine animation.
+* Dark-mode friendly backgrounds.
+* Use lazy loading for images.
+
+---
+
+🧩 INTEGRATIONS (NOT LIVE YET)
+Prepare hooks for:
+
+* Square Payments (`/server/lib/square.js`) placeholder
+* Future AI Prompt Sync (`/server/lib/promptSync.js`)
+
+---
+
+✅ ACCEPTANCE CRITERIA
+
+1. Users can upload, list, and manage assets.
+2. Marketplace shows public assets with filters.
+3. Purchasing (simulated) logs download + creates order.
+4. Purchased assets appear in “My Library.”
+5. Licensing & visibility rules enforced correctly.
+6. UI matches Empress aesthetic with gradient borders and soft cards.
+
+---
+
+🛡️ SECURITY / DX
+
+* File upload limit 25 MB; virus scan optional stub.
+* Validate price ≥ 0; sanitize titles/descriptions.
+* Paginate marketplace responses (20 per page).
+* Cache public marketplace responses (60 s per filter).
+
+---
+
+📄 DEV CHECKLIST
+
+* Run migration and seed a few demo assets.
+* Build upload & marketplace UI.
+* Confirm filtering and purchase flows.
+* Verify tenant scope with multiple brands.
+
+Report completion as:
+“Mirror Marketplace & Asset Library ready — users can upload, share, and trade creative assets securely across brands.”
+
+```
+
+---
+
+✅ Once this sprint passes testing, Rainbow CRM becomes a **multi-brand SaaS with its own mini-marketplace** — ready for monetization, prompt-pack sales, and community exchange.
+
+Would you like me to design the **Sprint 12 payload (Team Chat + Real-Time Collaboration)** next so it’s ready to paste the moment Marketplace passes review?
+```

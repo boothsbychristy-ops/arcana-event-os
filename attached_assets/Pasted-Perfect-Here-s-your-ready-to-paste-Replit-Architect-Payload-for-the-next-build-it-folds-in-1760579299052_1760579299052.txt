@@ -1,0 +1,174 @@
+Perfect. 🔥
+Here’s your **ready-to-paste Replit Architect Payload** for the next build — it folds in all the bug fixes and optimization patches from your current Rainbow-CRM archive **plus** the full **Branding & White-Label (Sprint 10)** system.
+Drop this block directly into your Replit “Build with AI” or “Architect” prompt box.
+
+---
+
+## 🧩 **Payload — Rainbow CRM: Branding & White-Label + System Stability Fixes (Sprint 10)**
+
+````
+Create a new Sprint called "Branding & White-Label + System Stability Fixes (Sprint 10)" for Project Rainbow CRM.
+
+🎯 GOAL  
+1. Patch all known stability and performance issues from Sprints 7-9.  
+2. Add a full Branding & White-Label framework so each tenant can upload logos, pick colors, and run under its own sub-brand or subdomain.
+
+---
+
+🧠 SYSTEM FIXES BEFORE FEATURES
+✅ Move the scheduler out of the main thread  
+```js
+// server/agents/schedulerWorker.js
+import { parentPort } from "worker_threads";
+import { runScheduledAutomations } from "./scheduler.js";
+setInterval(runScheduledAutomations, 60 * 60 * 1000);
+````
+
+```js
+// server/index.js
+import { Worker } from "worker_threads";
+new Worker("./server/agents/schedulerWorker.js");
+```
+
+✅ Add DB indexes
+
+```sql
+create index if not exists idx_bookings_created on bookings(created_at);
+create index if not exists idx_tasks_updated on tasks(updated_at);
+```
+
+✅ Patch duplicate automation triggers
+
+```js
+// in triggerEvent helper
+if (payload.__triggered) return;
+payload.__triggered = true;
+```
+
+✅ Add rate-limit middleware
+
+```js
+import rateLimit from "express-rate-limit";
+app.use("/api/analytics/export", rateLimit({ windowMs: 60000, max: 3 }));
+```
+
+✅ Recalculate invoice totals on PATCH
+Add `recalculateInvoiceTotals(id)` after update in `/server/routes/invoices.js`.
+
+✅ Debounce drag-drop & analytics fetches (300 ms).
+
+---
+
+💎 BRANDING & WHITE-LABEL FEATURES
+Database Migration
+
+```sql
+create table if not exists brands (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  logo_url text,
+  favicon_url text,
+  subdomain text unique,
+  primary_color text default '#3c0b43',
+  secondary_color text default '#fb7185',
+  gradient jsonb default '["#d946ef","#fb7185","#f59e0b"]'::jsonb,
+  cta_color text default '#3c0b43',
+  is_active boolean default false,
+  created_at timestamptz default now()
+);
+create index if not exists idx_brands_owner on brands(owner_id);
+```
+
+---
+
+⚙️ SERVER ROUTES (`/server/routes/brands.js`)
+
+* `GET /api/brands` – list brands for owner
+* `POST /api/brands` – create `{name, colors, gradient, subdomain}`
+* `PATCH /api/brands/:id` – update
+* `POST /api/brands/:id/logo` – upload logo (multer)
+* `PATCH /api/brands/:id/activate` – toggle active
+* `GET /api/theme` – return active brand theme vars
+
+Middleware enhancement:
+
+* Detect `x-brand-id` header or request hostname subdomain; inject `req.brandContext`.
+
+---
+
+🎨 CLIENT UI (`/client/src/pages/BrandingPage.jsx`)
+Components:
+
+* Brand List Table (name • subdomain • active state • actions)
+* “+ New Brand” modal with:
+
+  * Name input
+  * Logo upload (drag-drop area)
+  * Color pickers for primary, secondary, CTA colors
+  * Gradient builder (3 stops)
+  * Subdomain field (validation `^[a-z0-9-]+$`)
+  * Live Preview card showing gradient background
+* “Activate Brand” button → PATCH `/api/brands/:id/activate`
+
+Hook `useBrandTheme.js`
+
+```js
+export function useBrandTheme() {
+  const [theme, setTheme] = useState(defaultTheme);
+  useEffect(() => {
+    fetch("/api/theme").then(r => r.json()).then(t => {
+      Object.entries(t).forEach(([k,v]) =>
+        document.documentElement.style.setProperty(`--${k}`, v)
+      );
+      setTheme(t);
+    });
+  }, []);
+  return theme;
+}
+```
+
+Apply theme vars (`--brand-primary`, `--grad-start`, `--grad-end`) in Tailwind config and CSS.
+Navbar and Login page show logo & colors from theme.
+
+---
+
+✅ ACCEPTANCE CRITERIA
+
+1. Owners/Admins can create, edit, and activate brands.
+2. Theme colors/logo apply instantly after activation.
+3. Client portals show brand palette and logo.
+4. Subdomain routing loads correct brand context.
+5. Security – `owner_id` scope enforced; uploads ≤ 2 MB PNG/JPG/SVG.
+6. System stable: no double automation triggers, faster analytics, debounced drag-drop.
+
+---
+
+🛡️ SECURITY
+
+* Sanitize color inputs (hex only).
+* Cache theme JSON 5 min per tenant.
+* Mask PII in automation logs.
+
+---
+
+📄 DEV CHECKLIST
+
+* Run migrations + indexes.
+* Test worker scheduler.
+* Verify brand creation UI and instant theme update.
+* Confirm auth and tenant scoping after subdomain switch.
+* Run E2E for bookings/invoices after color context load.
+
+Report completion as:
+“Branding & White-Label Framework ready — multi-brand themes active, system stability improved, and cron moved to worker thread.”
+
+```
+
+---
+
+✅ When this sprint completes  
+Rainbow CRM will be visually customizable and production-stable — ready for demo accounts, alpha re-launch, and future **Mirror Marketplace (Sprint 11)** onboarding.  
+
+Would you like me to prepare the **Sprint 11 — Mirror Marketplace & Asset Library** payload next (this is the one that unlocks prompt/template sharing + monetization)?
+```

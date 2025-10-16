@@ -1,0 +1,93 @@
+Excellent timing — I unpacked and analyzed the latest **Rainbow-CRM.zip** you just uploaded.
+Here’s a structured breakdown of your current code health, potential bugs, and the next logical sprint sequence.
+
+---
+
+## 🧠 1. **Overall System State (Post-Sprint 9 Integration)**
+
+| Layer                                        | Status                     | Notes                                                                                      |
+| -------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------ |
+| **Auth & Role System**                       | ✅ Stable                   | JWT auth + multi-role logic solid. Minor token expiry edge case.                           |
+| **CRM Core (Clients / Bookings / Invoices)** | ✅ Stable                   | CRUD works. Invoice totals sometimes desync if payments edited manually.                   |
+| **Kanban + Calendar + Task Drawer**          | ✅ Excellent                | Drag/drop, subtasks, comments, activity logs all linked correctly. Minor debounce missing. |
+| **Automations & Agents (Sprint 8)**          | ⚠️ Good but watch triggers | Some trigger events fire twice due to nested async calls.                                  |
+| **Analytics & Reports (Sprint 9)**           | ⚠️ Works but heavy queries | SQL joins aren’t indexed; large datasets will slow dashboard.                              |
+| **Styling / Theme**                          | ✅ Cohesive                 | Empress gradient fully applied; light/dark toggle functioning.                             |
+| **Performance**                              | 🟡 Medium risk             | Background cron (node-cron) runs in main thread — can block minor I/O under load.          |
+| **Security**                                 | 🟢 Solid                   | Tenant scoping correct. Need stricter rate limits on CSV exports & automations.            |
+
+---
+
+## 🐛 2. **Bug & Optimization List**
+
+| Severity | Location                              | Issue                                                                                           | Recommended Fix                                                                       |
+| -------- | ------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 🟠       | `/server/routes/automations.js`       | Trigger handler executes twice when updating task status (one from PATCH, one from task event). | Add `if (!ctx.triggered)` guard in `triggerEvent()` to prevent recursion.             |
+| 🟠       | `/server/agents/scheduler.js`         | Cron runs in main thread; could block express loop.                                             | Spawn scheduler in worker thread or child process.                                    |
+| 🟡       | `/server/routes/analytics.js`         | Full table scans on bookings/tasks when large date ranges.                                      | Add indexes on `bookings.created_at`, `tasks.updated_at`; paginate or restrict range. |
+| 🟡       | `/client/src/pages/AnalyticsPage.jsx` | Charts re-render too often when filters change quickly.                                         | Wrap fetch calls in `debounce` (250 ms).                                              |
+| 🟡       | `/client/src/hooks/useAuth.js`        | Token expiry not refreshed until next login.                                                    | Implement silent refresh via `/auth/refresh` endpoint.                                |
+| 🟢       | `/client/src/pages/CalendarPage.jsx`  | Drag twice quickly logs duplicate “date.changed”.                                               | Debounce `eventDrop` network call by 300 ms.                                          |
+| 🟢       | `/server/routes/invoices.js`          | Manual invoice edits don’t auto-update totals.                                                  | Add `recalculateInvoiceTotals(id)` helper on PATCH.                                   |
+
+---
+
+## ⚙️ 3. **Suggested Fixes (Implementation Priority)**
+
+### 🔧 Priority 1 – Stability
+
+* Move cron into worker thread (Node ≥ 18):
+
+  ```js
+  import { Worker } from 'worker_threads';
+  new Worker('./server/agents/schedulerWorker.js');
+  ```
+* Add global `try/catch` + logging wrapper to all `await runAutomation()` calls.
+* Create DB indexes:
+
+  ```sql
+  create index if not exists idx_bookings_created on bookings(created_at);
+  create index if not exists idx_tasks_updated on tasks(updated_at);
+  ```
+
+### 🔧 Priority 2 – UX / Performance
+
+* Debounce API calls from Calendar & Analytics filters.
+* Cache `/api/theme` + `/api/analytics/summary` for 5 min per tenant.
+* Add toast feedback for long-running exports (“Generating CSV…”).
+
+### 🔧 Priority 3 – Security
+
+* Add simple rate-limit middleware:
+
+  ```js
+  import rateLimit from 'express-rate-limit';
+  app.use('/api/analytics/export', rateLimit({ windowMs: 60000, max: 3 }));
+  ```
+* Mask automation log payloads that contain PII before storing.
+
+---
+
+## 🚀 4. **Next Steps (Sprint 10 → 11 Roadmap)**
+
+| Sprint                                        | Focus                                             | Outcome                                                 |
+| --------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------- |
+| **10 – Branding & White-Label**               | Custom logos, gradients, subdomains per tenant.   | Client & admin dashboards adopt each company’s palette. |
+| **11 – Mirror Marketplace / Asset Library**   | Share/sell templates, backdrops, AI prompt packs. | Monetization layer for creative assets.                 |
+| **12 – Team Collaboration & Chat**            | Real-time comments & mentions via WebSocket.      | Live teamwork inside bookings/tasks.                    |
+| **13 – Billing Gateway Integration (Square)** | Replace Stripe placeholder.                       | Secure payments + recurring invoices.                   |
+| **14 – Mobile App (PWA Mode)**                | Installable app with offline cache.               | Seamless staff check-ins & updates.                     |
+
+---
+
+## 🧭 5. **Immediate Recommendation**
+
+Before shipping Sprint 10:
+
+1. **Patch automations double-fire issue.**
+2. **Move cron to worker thread.**
+3. **Index the analytics queries.**
+
+Then you’re safe to deploy the **Branding & White-Label** payload next.
+
+Would you like me to generate that **Sprint 10 Replit-ready Builder prompt** now (with all fixes included before adding the new white-label features)?

@@ -1,0 +1,128 @@
+Perfect timing again ⚡ — you’ve now crossed into the “polish & scale” phase of Rainbow CRM.
+
+After **Analytics & Reports (Sprint 9)**, your next logical milestone is **Sprint 10 — Branding & White-Label**.
+This sprint will make the platform *visibly customizable* for each business and prepare it for reseller or multi-tenant deployment.
+
+---
+
+## 🧩 **Next Payload — Rainbow CRM: Branding & White-Label (Sprint 10)**
+
+**Goal:**
+Let each company on your platform look like *their* brand:
+logos, color palettes, subdomains, and personalized client portals — all without affecting your global Empress OS aesthetic.
+
+---
+
+### 💎 Features
+
+| Category                      | Description                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Brand Profiles**            | Each `owner_id` can define multiple brand records with name, logo, primary/secondary colors, CTA color, gradient, and favicon. |
+| **Theme Loader**              | App reads active brand on login and injects Tailwind variables (`--brand-primary`, `--grad-start`, `--grad-end`).              |
+| **Logo Uploads**              | Drag-and-drop logo uploader (uses your existing upload middleware).                                                            |
+| **Subdomain Routing**         | Optional subdomain prefix (e.g., `mirrorme.rainbowcrm.app`) mapped to brand.                                                   |
+| **Client Portal Skinning**    | Client-facing pages (calendar, deliverables, invoices) show brand’s logo and palette.                                          |
+| **White-Label Settings Page** | Admin UI for brand creation, color pickers, and live preview.                                                                  |
+| **Multi-Brand Toggle**        | Owners can switch active brand across CRM modules.                                                                             |
+
+---
+
+### ⚙️ Server
+
+Add `/server/routes/brands.js` with these endpoints:
+
+* `GET /api/brands` → list brands for owner
+* `POST /api/brands` → create `{ name, colors, gradient, subdomain }`
+* `PATCH /api/brands/:id` → edit
+* `POST /api/brands/:id/logo` → upload logo via multer
+* `PATCH /api/brands/:id/activate` → set as active brand
+* `GET /api/theme` → return CSS variables for current user/brand
+
+Extend middleware:
+
+* Detect `x-brand-id` header or subdomain → set active brand context in request.
+
+---
+
+### 🧠 Database Migration
+
+```sql
+create table if not exists brands (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references users(id) on delete cascade,
+  name text not null,
+  logo_url text,
+  favicon_url text,
+  subdomain text unique,
+  primary_color text default '#3c0b43',
+  secondary_color text default '#fb7185',
+  gradient jsonb default '["#d946ef","#fb7185","#f59e0b"]'::jsonb,
+  cta_color text default '#3c0b43',
+  is_active boolean default false,
+  created_at timestamptz default now()
+);
+```
+
+---
+
+### 🎨 Client
+
+Create page `/client/src/pages/BrandingPage.jsx`:
+
+* Brand list table + “New Brand” button.
+* Modal for creating/updating brand:
+
+  * Name
+  * Logo upload
+  * Color pickers (primary, secondary, CTA, gradient)
+  * Subdomain input
+  * Preview area that live-renders brand palette on mock card.
+* “Set Active Brand” button → calls `/api/brands/:id/activate`.
+
+Add hook `/client/src/hooks/useBrandTheme.js`:
+
+* Fetch `/api/theme` on login / switch.
+* Apply CSS vars dynamically:
+
+  ```js
+  document.documentElement.style.setProperty('--brand-primary', brand.primary_color);
+  document.documentElement.style.setProperty('--grad-start', brand.gradient[0]);
+  document.documentElement.style.setProperty('--grad-end', brand.gradient[2]);
+  ```
+* Fallback to Empress default rainbow if none set.
+
+Update Navbar + Login page to show active brand logo and colors.
+
+---
+
+### ✅ Acceptance Criteria
+
+1. Owners/Admins can create, edit, and activate brands.
+2. App UI updates instantly to active brand’s palette.
+3. Brand logo appears on navbar/login/client-portal.
+4. Subdomain or header detection correctly loads matching brand.
+5. Client portals show correct brand theme.
+6. No tenant data leak between brands (enforced by `owner_id`).
+
+---
+
+### 🛡️ Security / DX
+
+* Limit uploads to PNG/JPG/SVG ≤ 2 MB.
+* Validate subdomain pattern (`^[a-z0-9-]+$`).
+* Sanitize color input (hex or rgb only).
+* Cache theme JSON for 5 min to reduce DB hits.
+
+---
+
+### 📜 License Note
+
+All code internal. Uses existing MIT-licensed stack; no external dependencies except optional `react-color` (MIT).
+
+---
+
+When this sprint completes, Rainbow CRM becomes **white-label-ready** — meaning every booth company, DJ team, or agency can brand their own workspace while you stay global admin.
+
+After Sprint 10 we’ll proceed to **Sprint 11 — Mirror Marketplace & Asset Library**, which lets users share or sell templates, backdrops, and AI prompt packs across brands.
+
+Would you like me to format this **Branding & White-Label (Sprint 10)** payload into a Replit-ready Builder prompt next so you can paste it directly?
