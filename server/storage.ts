@@ -34,6 +34,7 @@ import type {
   StaffApplication, InsertStaffApplication,
   Automation, InsertAutomation,
   AutomationLog, InsertAutomationLog,
+  Approval, InsertApproval,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -222,6 +223,11 @@ export interface IStorage {
   
   // Automation Logs
   getAutomationLogs(automationId?: string, limit?: number): Promise<AutomationLog[]>;
+  
+  // Approvals
+  getAllApprovals(ownerId: string): Promise<Approval[]>;
+  createApproval(approval: InsertApproval): Promise<Approval>;
+  updateApproval(id: string, approval: Partial<InsertApproval>): Promise<Approval | undefined>;
   
   // Analytics
   getAnalyticsSummary(from: Date, to: Date, ownerId: string, staffId?: string): Promise<{
@@ -1158,6 +1164,24 @@ export class DatabaseStorage implements IStorage {
       .from(schema.automationLogs)
       .orderBy(desc(schema.automationLogs.runAt))
       .limit(limit);
+  }
+
+  // Approvals
+  async getAllApprovals(ownerId: string): Promise<Approval[]> {
+    return db.select().from(schema.approvals).where(eq(schema.approvals.ownerId, ownerId));
+  }
+
+  async createApproval(approval: InsertApproval): Promise<Approval> {
+    const result = await db.insert(schema.approvals).values(approval).returning();
+    return result[0];
+  }
+
+  async updateApproval(id: string, approval: Partial<InsertApproval>): Promise<Approval | undefined> {
+    const result = await db.update(schema.approvals)
+      .set(approval)
+      .where(eq(schema.approvals.id, id))
+      .returning();
+    return result[0];
   }
 
   // Analytics
