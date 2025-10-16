@@ -1,0 +1,71 @@
+Perfect — the next payload will be **Phase 11.1 — Agent Wiring + Client Share Links**.
+It’ll plug intelligence into what we just scaffolded: actual job runners, webhooks, and a simple signed approval portal for clients (no login required).
+Here’s the spec you can hand to Replit or drop into your loader the same way as the previous one.
+
+---
+
+# 📦 `PAYLOAD_PHASE_11_1.json`
+
+```json
+{
+  "version": "11.1.0",
+  "description": "Phase 11.1 — Agent Wiring + Client Share Links (Drive → Agents, Reminders, and public approval URLs)",
+  "changes": [
+    {
+      "path": "server/jobs.ts",
+      "action": "create",
+      "contents": "import { driveWatcher, socialAgent, reminderAgent, visionAgent } from './agents';\nimport { db } from './db';\nimport * as schema from '../shared/schema';\nimport { and, eq } from 'drizzle-orm';\n\n// Very small in-memory queue (already safe for Replit)\nconst queue: any[] = [];\n\nexport function enqueue(job: any){ queue.push(job); }\n\nexport async function processQueue(){\n  while(queue.length){\n    const job = queue.shift();\n    try {\n      const { ownerId, type, payload } = job;\n      switch(type){\n        case 'driveWatcher': await driveWatcher(ownerId, payload.bookingId, payload.files); break;\n        case 'socialAgent': await socialAgent(ownerId, payload.bookingId, payload.galleryUrl); break;\n        case 'reminderAgent': await reminderAgent(ownerId, payload.bookingId, payload.kind); break;\n        case 'visionAgent': await visionAgent(ownerId, payload.bookingId, payload.galleryUrl); break;\n      }\n    } catch(err){ console.error('Job error', err); }\n  }\n}\n\n// Periodic cron runner (every 60 s)\nsetInterval(()=>processQueue(), 60000);\n\n// Hooks from routes\nexport async function onFileUpload(ownerId: string, bookingId: string, files: any[]){ enqueue({ ownerId, type:'driveWatcher', payload:{ bookingId, files } }); }\nexport async function onGalleryPublished(ownerId: string, bookingId: string, galleryUrl: string){ enqueue({ ownerId, type:'socialAgent', payload:{ bookingId, galleryUrl } }); }\nexport async function scheduleReminder(ownerId: string, bookingId: string, kind: 'approval'|'payment'){ enqueue({ ownerId, type:'reminderAgent', payload:{ bookingId, kind } }); }\n"
+    },
+    {
+      "path": "server/routes.approvalShare.ts",
+      "action": "create",
+      "contents": "import { Router } from 'express';\nimport jwt from 'jsonwebtoken';\nimport { db } from './db';\nimport * as schema from '../shared/schema';\nimport { eq } from 'drizzle-orm';\n\nconst r = Router();\nconst JWT_SECRET = process.env.JWT_SECRET!;\n\n// Create signed link\nr.post('/api/approvals/:id/share', async (req: any, res) => {\n  const token = jwt.sign({ id: req.params.id }, JWT_SECRET, { expiresIn:'7d' });\n  res.json({ url: `/a/${token}` });\n});\n\n// Public client view\nr.get('/a/:token', async (req, res) => {\n  try{\n    const { id }: any = jwt.verify(req.params.token, JWT_SECRET);\n    const [row] = await db.select().from(schema.approvals).where(eq(schema.approvals.id, id));\n    if(!row || !row.clientVisible) return res.status(404).send('Not found');\n    const html = `<!doctype html><html><head><meta charset='utf8'><title>${row.title}</title>\n      <style>body{font-family:system-ui;background:#0a0a0a;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}button{margin:8px;padding:10px 16px;border:none;border-radius:8px;font-weight:600;cursor:pointer}img{max-width:90%;border-radius:12px;margin-top:20px}</style>\n      </head><body><h2>${row.title}</h2>\n      ${row.draftUrl ? `<img src='${row.draftUrl}'/>` : ''}\n      <form method='post' action='/api/approval-feedback/${id}'><button name='status' value='approved' style='background:#16a34a;color:white'>Approve ✅</button><button name='status' value='feedback' style='background:#facc15'>Request Changes ✏️</button></form></body></html>`;\n    res.send(html);\n  }catch{ res.status(400).send('Bad token'); }\n});\n\n// Handle feedback from public form\nr.post('/api/approval-feedback/:id', async (req: any, res) => {\n  const status = req.body?.status === 'approved' ? 'approved' : 'feedback';\n  await db.update(schema.approvals).set({ status }).where(eq(schema.approvals.id, req.params.id));\n  res.send(`<body style='font-family:sans-serif;background:#0a0a0a;color:#eee;text-align:center;padding-top:20vh'>Thanks! Status updated → ${status}</body>`);\n});\n\nexport default r;\n"
+    },
+    {
+      "path": "server/index.ts",
+      "action": "patch",
+      "contents": "// ➕ mount new routes and job system\nimport shareRoutes from './routes.approvalShare';\nimport { enqueue, onFileUpload, onGalleryPublished, scheduleReminder } from './jobs';\napp.use(shareRoutes);\n// Optionally expose job triggers for testing\napp.post('/api/test/agent', async (req:any,res)=>{ enqueue(req.body); res.json({ok:true}); });\n"
+    },
+    {
+      "path": "client/src/pages/Approvals.tsx",
+      "action": "patch",
+      "contents": "// ➕ share-link action buttons\n// inside ApproveCard component button row:\n// <button onClick={async()=>{const r=await fetch(`/api/approvals/${item.id}/share`,{method:'POST'}).then(r=>r.json());alert(`Share link: ${r.url}`)}} className='px-3 py-2 rounded-lg bg-purple-600/80 hover:bg-purple-600'>Get Share Link</button>\n"
+    }
+  ]
+}
+```
+
+---
+
+### 🧠 What this payload adds
+
+1. **Agent Queue (`jobs.ts`)**
+
+   * lightweight FIFO loop every 60 s
+   * exposes helper hooks (`onFileUpload`, `onGalleryPublished`, `scheduleReminder`) for your upload or booking logic
+
+2. **Client Approval Share Links**
+
+   * POST `/api/approvals/:id/share` → returns a signed URL (`/a/:token`)
+   * Client opens the link to see image, Approve ✅ or Request Changes ✏️
+   * POST updates `approvals.status` to `approved` or `feedback`
+
+3. **UI Update**
+
+   * Adds a **“Get Share Link”** button to each approval card in the admin view
+   * Pops an alert with the share URL for quick copy/paste to client
+
+---
+
+### ✅ Smoke tests
+
+1. POST `/api/approvals/:id/share` → returns `/a/<token>`
+2. Visit that URL → see your draft image and two buttons.
+3. Click Approve → DB row’s status = `approved`.
+4. POST `/api/test/agent` with `{ownerId:'uuid',type:'reminderAgent',payload:{bookingId:'uuid',kind:'approval'}}` → creates log entry in `agent_logs`.
+
+---
+
+**Next (Phase 11.2)** will connect this queue to Supabase storage events, automatically fire reminders 7 days before events, and let AI agents auto-tag uploaded media.
+
+Would you like me to generate **11.2 – Supabase Hooks + AI Tagging Agents** next?

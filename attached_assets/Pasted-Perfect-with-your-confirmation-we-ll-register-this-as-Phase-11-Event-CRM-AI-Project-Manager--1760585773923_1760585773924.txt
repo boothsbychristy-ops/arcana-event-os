@@ -1,0 +1,63 @@
+Perfect — with your confirmation, we’ll register this as **Phase 11: Event CRM + AI Project Manager Integration** in the Empress OS roadmap.
+
+Here’s what this payload will include:
+
+---
+
+### ⚙️ **Phase 11 Payload — Event CRM & AI Project Manager**
+
+**Modules to Build**
+
+1. **Event CRM Core**
+
+   * Pipelines: Lead → Proposal → Booked → Fulfilled → Renewal
+   * Booking form generator + date/resource conflict logic
+   * Contract + e-signature + invoice templates with partial payments + tips
+   * Client portal with progress summary + “Action Items” checklist
+
+2. **Creative Collaboration Suite**
+
+   * File approval workflow (upload → review → feedback → approval)
+   * Embeddable template + backdrop libraries (Paddee / PB Backdrops widgets)
+   * AI prompt sample preview flow (uses Empress V7 anchors + seed image to generate draft via Veo 3)
+
+3. **Project Management Layer**
+
+   * Task + subtask templates auto-generated per package type
+   * Dynamic deadlines relative to event date (T-X days)
+   * Internal checklists vs client-visible checklists
+   * Role-based dashboards (Admin, Designer, Client, Staff)
+
+4. **AI Automation Agents**
+
+   * Drive Watcher Agent → detect new files and auto-build CSV of URLs
+   * Social Agent → auto-generate Instagram/Facebook posts when gallery is published
+   * Reminder Agent → automated email/SMS follow-ups for pending approvals or payments
+   * Vision Agent → face tagging + smart gallery sorting
+
+5. **UX/UI**
+
+   * Neon glass interface with progressive disclosure for CRM/PM tools
+   * Contextual onboarding (coach-marks + skip/recall tips)
+   * Consistent cross-device design (desktop Studio + iPad Kiosk mode)
+   * Emotional design hooks (celebratory micro-animations on client approval)
+
+6. **Integrations & Storage**
+
+   * Google Drive / Dropbox sync for deliverables
+   * Zapier / Make connectors for external automations
+   * Supabase tables: `crm_clients`, `bookings`, `tasks`, `approvals`, `agents_logs`
+
+---
+
+**Next-Step Tasks**
+
+1. Generate database migration payload for the above tables.
+2. Add API endpoints: `/api/bookings`, `/api/tasks`, `/api/approvals`, `/api/agents`.
+3. Build React pages: `/crm`, `/crm/:id`, `/projects`, `/approvals`.
+4. Extend Admin Dashboard metrics with bookings + approval stats.
+5. Hook AI agent triggers to Supabase storage events (new file = start automation).
+
+---
+
+Do you want me to format this as a **ready-to-run JSON payload pack** for Replit (like the earlier phases) so you can load it directly into Baby Empress OS?
