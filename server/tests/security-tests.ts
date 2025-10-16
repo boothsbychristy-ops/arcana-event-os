@@ -222,6 +222,95 @@ async function runTests() {
     if (res.status !== 404) throw new Error(`Expected 404, got ${res.status}`);
   })();
 
+  // Test 5: DELETE operations with rowCount checks
+  await test('Delete returns false for non-existent client', async () => {
+    const res = await request(app)
+      .delete('/api/clients/non-existent-id')
+      .set('Cookie', ownerToken);
+    if (res.status !== 404) throw new Error(`Expected 404, got ${res.status}`);
+  })();
+
+  await test('Delete returns false for other owner\'s proposal', async () => {
+    const proposal = await request(app)
+      .post('/api/proposals')
+      .set('Cookie', otherOwnerToken)
+      .send({
+        clientId: owner2ClientId,
+        title: 'To Delete',
+        amount: 1000,
+        status: 'draft'
+      });
+
+    const res = await request(app)
+      .delete(`/api/proposals/${proposal.body.id}`)
+      .set('Cookie', ownerToken);
+    
+    if (res.status !== 404) throw new Error(`Expected 404, got ${res.status}`);
+  })();
+
+  // Test 6: Special action endpoints security
+  await test('Prevent converting other owner\'s proposal to booking', async () => {
+    const proposal = await request(app)
+      .post('/api/proposals')
+      .set('Cookie', otherOwnerToken)
+      .send({
+        clientId: owner2ClientId,
+        title: 'Other Owner Proposal',
+        amount: 2000,
+        status: 'accepted'
+      });
+
+    const res = await request(app)
+      .post(`/api/proposals/${proposal.body.id}/convert-to-booking`)
+      .set('Cookie', ownerToken);
+    
+    if (res.status !== 400 && res.status !== 404) {
+      throw new Error(`Expected 404 or 400, got ${res.status}`);
+    }
+  })();
+
+  await test('Prevent approving other owner\'s staff application', async () => {
+    const application = await request(app)
+      .post('/api/staff-applications')
+      .send({
+        ownerId: owner2.id,
+        firstName: 'Jane',
+        lastName: 'Smith',
+        email: `jane_${Date.now()}@test.com`,
+        phone: '987-654-3210',
+        position: 'DJ',
+        experience: '5 years'
+      });
+
+    const res = await request(app)
+      .post(`/api/staff-applications/${application.body.id}/approve`)
+      .set('Cookie', ownerToken);
+    
+    if (res.status !== 400 && res.status !== 404) {
+      throw new Error(`Expected 404 or 400, got ${res.status}`);
+    }
+  })();
+
+  await test('Prevent rejecting other owner\'s staff application', async () => {
+    const application = await request(app)
+      .post('/api/staff-applications')
+      .send({
+        ownerId: owner2.id,
+        firstName: 'Bob',
+        lastName: 'Johnson',
+        email: `bob_${Date.now()}@test.com`,
+        phone: '555-555-5555',
+        position: 'Photographer',
+        experience: '3 years'
+      });
+
+    const res = await request(app)
+      .post(`/api/staff-applications/${application.body.id}/reject`)
+      .set('Cookie', ownerToken);
+    
+    if (res.status !== 404) throw new Error(`Expected 404, got ${res.status}`);
+  })();
+
   // Summary
   console.log('\n📊 Test Summary\n');
   const passed = results.filter(r => r.passed).length;
