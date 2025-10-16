@@ -3,10 +3,10 @@ import bcrypt from "bcrypt";
 import type { Request, Response, NextFunction } from "express";
 import type { User } from "@shared/schema";
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
+if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET environment variable must be set. Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"");
 }
+const JWT_SECRET: string = process.env.JWT_SECRET;
 const SALT_ROUNDS = 10;
 
 export interface AuthRequest extends Request {
@@ -82,4 +82,12 @@ export function roleMiddleware(...allowedRoles: string[]) {
 
     next();
   };
+}
+
+// Helper function to verify ownership of a resource
+export function requireOwnership(resourceOwnerId: string | null | undefined, currentUserId: string): boolean {
+  if (!resourceOwnerId) {
+    return false;
+  }
+  return resourceOwnerId === currentUserId;
 }

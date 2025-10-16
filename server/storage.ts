@@ -47,33 +47,33 @@ export interface IStorage {
   
   // Clients
   getAllClients(ownerId: string): Promise<Client[]>;
-  getClient(id: string): Promise<Client | undefined>;
+  getClient(id: string, ownerId: string): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
-  updateClient(id: string, client: Partial<InsertClient>): Promise<Client | undefined>;
-  deleteClient(id: string): Promise<boolean>;
+  updateClient(id: string, ownerId: string, client: Partial<InsertClient>): Promise<Client | undefined>;
+  deleteClient(id: string, ownerId: string): Promise<boolean>;
   
   // Staff
   getAllStaff(ownerId: string): Promise<Staff[]>;
-  getStaff(id: string): Promise<Staff | undefined>;
+  getStaff(id: string, ownerId: string): Promise<Staff | undefined>;
   getStaffByUserId(userId: string): Promise<Staff | undefined>;
   createStaff(staff: InsertStaff): Promise<Staff>;
-  updateStaff(id: string, staff: Partial<InsertStaff>): Promise<Staff | undefined>;
+  updateStaff(id: string, ownerId: string, staff: Partial<InsertStaff>): Promise<Staff | undefined>;
   
   // Proposals
   getAllProposals(ownerId: string): Promise<Proposal[]>;
-  getProposal(id: string): Promise<Proposal | undefined>;
+  getProposal(id: string, ownerId: string): Promise<Proposal | undefined>;
   getProposalsByClient(clientId: string): Promise<Proposal[]>;
   createProposal(proposal: InsertProposal): Promise<Proposal>;
-  updateProposal(id: string, proposal: Partial<InsertProposal>): Promise<Proposal | undefined>;
-  convertProposalToBooking(proposalId: string): Promise<Booking>;
+  updateProposal(id: string, ownerId: string, proposal: Partial<InsertProposal>): Promise<Proposal | undefined>;
+  convertProposalToBooking(proposalId: string, ownerId: string): Promise<Booking>;
   
   // Bookings
   getAllBookings(ownerId: string): Promise<Booking[]>;
-  getBooking(id: string): Promise<Booking | undefined>;
+  getBooking(id: string, ownerId: string): Promise<Booking | undefined>;
   getBookingsByClient(clientId: string): Promise<Booking[]>;
   getUpcomingBookings(limit?: number): Promise<Booking[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
-  updateBooking(id: string, booking: Partial<InsertBooking>): Promise<Booking | undefined>;
+  updateBooking(id: string, ownerId: string, booking: Partial<InsertBooking>): Promise<Booking | undefined>;
   
   // Booking Staff Assignments
   getBookingStaff(bookingId: string): Promise<BookingStaff[]>;
@@ -82,10 +82,10 @@ export interface IStorage {
   
   // Invoices
   getAllInvoices(ownerId: string): Promise<Invoice[]>;
-  getInvoice(id: string): Promise<Invoice | undefined>;
+  getInvoice(id: string, ownerId: string): Promise<Invoice | undefined>;
   getInvoiceByBooking(bookingId: string): Promise<Invoice | undefined>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
-  updateInvoice(id: string, invoice: Partial<InsertInvoice>): Promise<Invoice | undefined>;
+  updateInvoice(id: string, ownerId: string, invoice: Partial<InsertInvoice>): Promise<Invoice | undefined>;
   
   // Invoice Items
   getInvoiceItems(invoiceId: string): Promise<InvoiceItem[]>;
@@ -133,11 +133,11 @@ export interface IStorage {
   
   // Boards
   getAllBoards(ownerId: string): Promise<Board[]>;
-  getBoard(id: string): Promise<Board | undefined>;
-  getBoardWithDetails(id: string): Promise<{ board: Board; groups: BoardGroup[]; tasks: Task[]; statuses: TaskStatus[] } | undefined>;
+  getBoard(id: string, ownerId: string): Promise<Board | undefined>;
+  getBoardWithDetails(id: string, ownerId: string): Promise<{ board: Board; groups: BoardGroup[]; tasks: Task[]; statuses: TaskStatus[] } | undefined>;
   createBoard(board: InsertBoard): Promise<Board>;
-  updateBoard(id: string, board: Partial<InsertBoard>): Promise<Board | undefined>;
-  deleteBoard(id: string): Promise<boolean>;
+  updateBoard(id: string, ownerId: string, board: Partial<InsertBoard>): Promise<Board | undefined>;
+  deleteBoard(id: string, ownerId: string): Promise<boolean>;
   
   // Board Groups
   getBoardGroups(boardId: string): Promise<BoardGroup[]>;
@@ -289,8 +289,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(schema.clients.createdAt));
   }
 
-  async getClient(id: string): Promise<Client | undefined> {
-    const [client] = await db.select().from(schema.clients).where(eq(schema.clients.id, id));
+  async getClient(id: string, ownerId: string): Promise<Client | undefined> {
+    const [client] = await db.select().from(schema.clients)
+      .where(and(eq(schema.clients.id, id), eq(schema.clients.ownerId, ownerId)));
     return client;
   }
 
@@ -299,13 +300,14 @@ export class DatabaseStorage implements IStorage {
     return client;
   }
 
-  async updateClient(id: string, clientData: Partial<InsertClient>): Promise<Client | undefined> {
-    const [client] = await db.update(schema.clients).set(clientData).where(eq(schema.clients.id, id)).returning();
+  async updateClient(id: string, ownerId: string, clientData: Partial<InsertClient>): Promise<Client | undefined> {
+    const [client] = await db.update(schema.clients).set(clientData)
+      .where(and(eq(schema.clients.id, id), eq(schema.clients.ownerId, ownerId))).returning();
     return client;
   }
 
-  async deleteClient(id: string): Promise<boolean> {
-    const result = await db.delete(schema.clients).where(eq(schema.clients.id, id));
+  async deleteClient(id: string, ownerId: string): Promise<boolean> {
+    await db.delete(schema.clients).where(and(eq(schema.clients.id, id), eq(schema.clients.ownerId, ownerId)));
     return true;
   }
 
@@ -316,8 +318,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(schema.staff.createdAt));
   }
 
-  async getStaff(id: string): Promise<Staff | undefined> {
-    const [staff] = await db.select().from(schema.staff).where(eq(schema.staff.id, id));
+  async getStaff(id: string, ownerId: string): Promise<Staff | undefined> {
+    const [staff] = await db.select().from(schema.staff)
+      .where(and(eq(schema.staff.id, id), eq(schema.staff.ownerId, ownerId)));
     return staff;
   }
 
@@ -331,8 +334,9 @@ export class DatabaseStorage implements IStorage {
     return staff;
   }
 
-  async updateStaff(id: string, staffData: Partial<InsertStaff>): Promise<Staff | undefined> {
-    const [staff] = await db.update(schema.staff).set(staffData).where(eq(schema.staff.id, id)).returning();
+  async updateStaff(id: string, ownerId: string, staffData: Partial<InsertStaff>): Promise<Staff | undefined> {
+    const [staff] = await db.update(schema.staff).set(staffData)
+      .where(and(eq(schema.staff.id, id), eq(schema.staff.ownerId, ownerId))).returning();
     return staff;
   }
 
@@ -343,8 +347,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(schema.proposals.createdAt));
   }
 
-  async getProposal(id: string): Promise<Proposal | undefined> {
-    const [proposal] = await db.select().from(schema.proposals).where(eq(schema.proposals.id, id));
+  async getProposal(id: string, ownerId: string): Promise<Proposal | undefined> {
+    const [proposal] = await db.select().from(schema.proposals)
+      .where(and(eq(schema.proposals.id, id), eq(schema.proposals.ownerId, ownerId)));
     return proposal;
   }
 
@@ -357,13 +362,14 @@ export class DatabaseStorage implements IStorage {
     return proposal;
   }
 
-  async updateProposal(id: string, proposalData: Partial<InsertProposal>): Promise<Proposal | undefined> {
-    const [proposal] = await db.update(schema.proposals).set(proposalData).where(eq(schema.proposals.id, id)).returning();
+  async updateProposal(id: string, ownerId: string, proposalData: Partial<InsertProposal>): Promise<Proposal | undefined> {
+    const [proposal] = await db.update(schema.proposals).set(proposalData)
+      .where(and(eq(schema.proposals.id, id), eq(schema.proposals.ownerId, ownerId))).returning();
     return proposal;
   }
 
-  async convertProposalToBooking(proposalId: string): Promise<Booking> {
-    const proposal = await this.getProposal(proposalId);
+  async convertProposalToBooking(proposalId: string, ownerId: string): Promise<Booking> {
+    const proposal = await this.getProposal(proposalId, ownerId);
     if (!proposal) {
       throw new Error("Proposal not found");
     }
@@ -399,8 +405,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(schema.bookings.startTime));
   }
 
-  async getBooking(id: string): Promise<Booking | undefined> {
-    const [booking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
+  async getBooking(id: string, ownerId: string): Promise<Booking | undefined> {
+    const [booking] = await db.select().from(schema.bookings)
+      .where(and(eq(schema.bookings.id, id), eq(schema.bookings.ownerId, ownerId)));
     return booking;
   }
 
@@ -420,8 +427,9 @@ export class DatabaseStorage implements IStorage {
     return booking;
   }
 
-  async updateBooking(id: string, bookingData: Partial<InsertBooking>): Promise<Booking | undefined> {
-    const [booking] = await db.update(schema.bookings).set(bookingData).where(eq(schema.bookings.id, id)).returning();
+  async updateBooking(id: string, ownerId: string, bookingData: Partial<InsertBooking>): Promise<Booking | undefined> {
+    const [booking] = await db.update(schema.bookings).set(bookingData)
+      .where(and(eq(schema.bookings.id, id), eq(schema.bookings.ownerId, ownerId))).returning();
     return booking;
   }
 
@@ -447,8 +455,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(schema.invoices.createdAt));
   }
 
-  async getInvoice(id: string): Promise<Invoice | undefined> {
-    const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, id));
+  async getInvoice(id: string, ownerId: string): Promise<Invoice | undefined> {
+    const [invoice] = await db.select().from(schema.invoices)
+      .where(and(eq(schema.invoices.id, id), eq(schema.invoices.ownerId, ownerId)));
     return invoice;
   }
 
@@ -462,8 +471,9 @@ export class DatabaseStorage implements IStorage {
     return invoice;
   }
 
-  async updateInvoice(id: string, invoiceData: Partial<InsertInvoice>): Promise<Invoice | undefined> {
-    const [invoice] = await db.update(schema.invoices).set(invoiceData).where(eq(schema.invoices.id, id)).returning();
+  async updateInvoice(id: string, ownerId: string, invoiceData: Partial<InsertInvoice>): Promise<Invoice | undefined> {
+    const [invoice] = await db.update(schema.invoices).set(invoiceData)
+      .where(and(eq(schema.invoices.id, id), eq(schema.invoices.ownerId, ownerId))).returning();
     return invoice;
   }
 
@@ -626,13 +636,14 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(schema.boards).where(eq(schema.boards.ownerId, ownerId)).orderBy(desc(schema.boards.createdAt));
   }
 
-  async getBoard(id: string): Promise<Board | undefined> {
-    const [board] = await db.select().from(schema.boards).where(eq(schema.boards.id, id));
+  async getBoard(id: string, ownerId: string): Promise<Board | undefined> {
+    const [board] = await db.select().from(schema.boards)
+      .where(and(eq(schema.boards.id, id), eq(schema.boards.ownerId, ownerId)));
     return board;
   }
 
-  async getBoardWithDetails(id: string): Promise<{ board: Board; groups: BoardGroup[]; tasks: Task[]; statuses: TaskStatus[] } | undefined> {
-    const board = await this.getBoard(id);
+  async getBoardWithDetails(id: string, ownerId: string): Promise<{ board: Board; groups: BoardGroup[]; tasks: Task[]; statuses: TaskStatus[] } | undefined> {
+    const board = await this.getBoard(id, ownerId);
     if (!board) return undefined;
 
     const groups = await this.getBoardGroups(id);
@@ -647,13 +658,14 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async updateBoard(id: string, boardData: Partial<InsertBoard>): Promise<Board | undefined> {
-    const [board] = await db.update(schema.boards).set(boardData).where(eq(schema.boards.id, id)).returning();
+  async updateBoard(id: string, ownerId: string, boardData: Partial<InsertBoard>): Promise<Board | undefined> {
+    const [board] = await db.update(schema.boards).set(boardData)
+      .where(and(eq(schema.boards.id, id), eq(schema.boards.ownerId, ownerId))).returning();
     return board;
   }
 
-  async deleteBoard(id: string): Promise<boolean> {
-    const result = await db.delete(schema.boards).where(eq(schema.boards.id, id));
+  async deleteBoard(id: string, ownerId: string): Promise<boolean> {
+    const result = await db.delete(schema.boards).where(and(eq(schema.boards.id, id), eq(schema.boards.ownerId, ownerId)));
     return result.rowCount !== null && result.rowCount > 0;
   }
 
