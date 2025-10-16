@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { apiRequest } from '@/lib/queryClient';
 
 export default function BackgroundPicker({ onSelect }: { onSelect: (url: string) => void }) {
   const [aiPrompt, setPrompt] = useState('');
@@ -22,16 +23,7 @@ export default function BackgroundPicker({ onSelect }: { onSelect: (url: string)
 
     setLoading(true);
     try {
-      const response = await fetch('/api/ai/background', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: aiPrompt }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate background');
-      }
-
+      const response = await apiRequest('POST', '/api/ai/background', { prompt: aiPrompt });
       const data = await response.json();
       setPreview(data.url);
       toast({
