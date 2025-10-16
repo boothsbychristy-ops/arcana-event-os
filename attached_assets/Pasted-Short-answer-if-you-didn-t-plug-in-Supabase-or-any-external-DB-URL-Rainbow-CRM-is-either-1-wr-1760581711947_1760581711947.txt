@@ -1,0 +1,107 @@
+Short answer: if you didn’t plug in Supabase (or any external DB URL), Rainbow CRM is either:
+
+1. writing to a local file DB (SQLite) inside your Replit project folder, or
+2. not persisting at all (in-memory JS arrays that vanish on restart), or
+3. using Replit’s key-value DB only if the code imports `@replit/database` (most projects don’t).
+
+Let’s verify in 60 seconds:
+
+### 1) Check which Drizzle adapter you’re using
+
+Open the repo and look for your `db` bootstrap:
+
+* `server/db.ts` or `server/drizzle.ts`
+* `shared/schema.ts`
+* `drizzle.config.ts`
+
+You’ll see one of these imports:
+
+* `drizzle-orm/sqlite` or `better-sqlite3` → **local SQLite file**
+* `drizzle-orm/postgres-js` or `pg` → **Postgres** (needs `DATABASE_URL`)
+* `@replit/database` in any file → **Replit KV store**
+
+### 2) Hunt for a local database file on Replit
+
+Open the Replit Shell and run:
+
+```
+find . -maxdepth 2 -type f \( -iname "*.sqlite" -o -iname "*.db" -o -iname "drizzle*.*" \)
+```
+
+Common hits:
+
+* `./drizzle.sqlite`
+* `./data/app.db`
+* `./.data/drizzle.sqlite`
+* `./drizzle/` (migrations folder)
+
+If you see a `*.sqlite`/`*.db`: that’s where customers are being saved (persisted in your Replit filesystem).
+
+### 3) Check for Postgres envs (to rule out a hidden external DB)
+
+In the Replit “Secrets” panel, look for:
+
+* `DATABASE_URL`
+* `POSTGRES_URL`, `PGHOST`, `PGUSER`, `PGPASSWORD`
+
+If none exist and your code uses Postgres, then writes are probably failing or the app swapped to an in-memory fallback.
+
+### 4) Check for Replit DB usage (KV store)
+
+Search the code:
+
+```
+grep -R "@replit/database" -n .
+```
+
+If found, data lives in Replit’s KV store (namespace tied to your repl). If not found, ignore this path.
+
+---
+
+## What each outcome means
+
+* **SQLite file present:** You’re saving locally on Replit. It persists across restarts of the same repl, but it’s not a real cloud DB. Forking or moving environments can orphan the data file.
+* **No file + no DATABASE_URL + app “works”:** You’re likely in **in-memory** mode — any “customers” will disappear on server restart/redeploy.
+* **Postgres adapter + missing DATABASE_URL:** Writes should be erroring. Check the server logs.
+
+---
+
+## Clean next steps (pick one)
+
+**Option A — Stay local (fastest now)**
+
+1. Keep SQLite for alpha.
+2. Commit Drizzle migrations.
+3. Back up the file regularly:
+
+   ```
+   cp drizzle.sqlite backups/drizzle-$(date +%F-%H%M).sqlite
+   ```
+4. Add an export endpoint/CLI to dump CSV/JSON for Clients, Bookings, Invoices.
+
+**Option B — Move to a real Postgres (recommended)**
+
+1. Create a Neon/Railway/Supabase Postgres instance.
+2. Set `DATABASE_URL` in Replit Secrets.
+3. Run Drizzle migrations:
+
+   ```
+   npm run drizzle:generate
+   npm run drizzle:migrate
+   ```
+4. Write a one-off script to copy records from SQLite → Postgres (Drizzle can connect to both; read from sqlite, insert into pg).
+5. Flip the app to the Postgres adapter only (remove any SQLite fallback).
+
+**Option C — Replit DB (only if the code already uses it)**
+
+* Fine for counters/flags; **not** ideal for CRM relational data. I wouldn’t.
+
+---
+
+## Quick sanity checks after you decide
+
+* Create a test customer → refresh the server → confirm it’s still there.
+* Kill the repl → reopen → confirm it’s still there.
+* Export a CSV to confirm you can get data out on demand.
+
+If you want, I’ll give you a tiny migration payload to (1) auto-detect SQLite vs Postgres at boot, (2) print exactly where data is going, and (3) dump a CSV backup on demand.

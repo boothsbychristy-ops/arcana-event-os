@@ -1,0 +1,158 @@
+Alright, I pulled the Rainbow-CRM code apart and did a quick-but-thorough audit across server, storage, and client. Here’s the punchy diagnosis + fixes so you can ship without leaking data or lighting yourself on fire.
+
+# What’s working
+
+* Solid Express + Vite integration with a single server process (serves API + client).
+* Drizzle ORM with typed schemas and Zod input validation on most routes. Good bones.
+* Passwords are hashed and verified correctly (bcrypt).
+* Route structure is clean; public vs. private endpoints are laid out in order.
+
+# Critical bugs & security gaps (fix these first)
+
+1. Anyone can self-register with any role (admin/owner)
+   In `/api/auth/signup`, you accept `role` from the body and write it straight to DB. That’s a straight shot to privilege escalation.
+
+* **Fix:** Ignore/strip `role` on signup. Default to `"client"` (or `"user"`) and require an owner/admin invite or manual promotion for staff/admin.
+
+  ```ts
+  // routes.ts (signup)
+  const user = await storage.createUser({
+    username: data.username,
+    email: data.email,
+    password: hashedPassword,
+    fullName: data.fullName,
+    role: "client", // force
+  });
+  ```
+
+  Add a protected endpoint `PATCH /api/users/:id/role` guarded by `roleMiddleware("owner","admin")`.
+
+2. Multi-tenant data leakage across almost all “getAll*” queries
+   Most storage methods (e.g., `getAllClients`, `getAllStaff`, `getAllProposals`, `getAllBookings`, `getAllInvoices`, `getAllTasks`, etc.) **don’t scope by the current owner/user**. Some tables don’t even have an `ownerId` column.
+
+* **Fix (schema):** Add `ownerId` (FK → users.id) to every entity that must be tenant-scoped (clients, proposals, bookings, invoices, tasks, boards, leads, automations, etc.).
+* **Fix (write-path):** On create/update, set `ownerId = req.user.id` (or `req.user.ownerId` if you keep a separate owner concept).
+* **Fix (read-path):** Every `select` must `where(eq(table.ownerId, req.user.id))`.
+* **Interim patch:** Until migrations are ready, guard in routes: pass `ownerId` into storage and filter there so you don’t accidentally bleed data between tenants.
+
+3. Hardcoded JWT secret default
+   `JWT_SECRET` falls back to `"your-secret-key-change-in-production"`. That’s not a secret; it’s a welcome mat.
+
+* **Fix:** Fail hard if `process.env.JWT_SECRET` is absent. Rotate secrets in prod.
+
+  ```ts
+  const JWT_SECRET = process.env.JWT_SECRET;
+  if (!JWT_SECRET) throw new Error("JWT_SECRET must be set");
+  ```
+
+4. Tokens in `localStorage` (XSS = account takeover)
+   Auth is Bearer tokens stored in `localStorage`. Any XSS = stolen token.
+
+* **Fix (strongly recommended):** Switch to HttpOnly, Secure, SameSite cookies for the access token; pair with a short-lived access token + rotating refresh token.
+* **At minimum:** Add strict CSP + sanitize any risky HTML rendering to reduce XSS blast radius.
+
+5. No rate-limit / brute-force protection on `/api/auth/login`
+
+* **Fix:** Add IP + user/email throttling (e.g., `express-rate-limit`) and basic login attempt counters with backoff.
+
+6. PII-heavy response logging on every `/api/*`
+   `server/index.ts` captures the JSON body and logs it. That can dump emails, addresses, etc. into logs.
+
+* **Fix:** Redact sensitive fields or log only metadata (route, status, duration, id counts). Turn off body logging in prod.
+
+7. No email verification / password reset flow
+
+* **Fix:** Add `/api/auth/request-reset`, `/api/auth/reset`, and `/api/auth/verify-email` (signed, expiring tokens). Block privileged actions until verified.
+
+8. Scheduled automations can double-run in multi-instance deploys
+   `node-cron` will fire in every instance.
+
+* **Fix:** Add a distributed lock (e.g., DB advisory lock row or Redis “lease”) around `runScheduledAutomations()` so only one instance runs per schedule.
+
+9. Several update endpoints accept raw bodies without schema enforcement
+   Example: `updatePaymentMethod` uses `req.body` directly. A few others do similar “pass-through” updates.
+
+* **Fix:** Use `insertXSchema.partial()` to validate every update payload before writing.
+
+10. No DB migrations checked in
+    `drizzle.config.ts` points to `./shared/schema.ts` but `/migrations` isn’t present.
+
+* **Fix:** Commit generated migrations and add a startup check for required tables. Provide a `seed` script for an owner/admin bootstrap.
+
+# High-impact code changes (copy/paste friendly)
+
+**A) Tenant guard middleware (add once, reuse everywhere):**
+
+```ts
+// server/auth.ts
+export function requireTenant(next: (req: AuthRequest, res: Response) => any) {
+  return (req: AuthRequest, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    return next(req, res);
+  };
+}
+```
+
+**B) Storage pattern (owner-scoped reads/writes):**
+
+```ts
+// server/storage.ts (example)
+async getAllClientsByOwner(ownerId: string) {
+  return db.select().from(schema.clients)
+    .where(eq(schema.clients.ownerId, ownerId))
+    .orderBy(desc(schema.clients.createdAt));
+}
+
+async createClientForOwner(ownerId: string, data: InsertClient) {
+  const [client] = await db.insert(schema.clients)
+    .values({ ...data, ownerId })
+    .returning();
+  return client;
+}
+```
+
+**C) Secure signup (force role, optional allowlist):**
+
+```ts
+// server/routes.ts (signup)
+const ALLOWED_SIGNUP_DOMAINS = (process.env.ALLOWED_SIGNUP_DOMAINS||"").split(",").filter(Boolean);
+// optionally enforce allowed domains for non-owner tenants
+
+const user = await storage.createUser({
+  username: data.username,
+  email: data.email,
+  password: hashedPassword,
+  fullName: data.fullName,
+  role: "client",
+});
+```
+
+# Schema work you should plan (Drizzle)
+
+* Add `ownerId` to: `clients, staff, proposals, bookings, invoices, invoiceItems, tasks, taskComments, subtasks, boards, boardGroups, boardMembers, messages, leads, automations, automationLogs, deliverables, paymentPlans, bookingEngineSettings, bookingQuestions, bookingResponses, unavailableNotices, privacySettings`.
+* Backfill strategy: until you migrate, hide non-scoped endpoints behind owner filters at the route level and default the owner to the current user for new records.
+
+# Product/UX papercuts to smooth over
+
+* **Login UX:** On invalid token at bootstrap, you clear token but leave the user staring at a protected route for a beat. Redirect to `/login` immediately after invalidation.
+* **Form error surfaces:** Make sure Zod errors are surfaced inline (field → message), not toast-only.
+* **Long lists:** Add pagination/virtualization for Clients/Bookings if you plan to scale.
+
+# Ops & observability
+
+* **Rate limit + helmet:** Add `helmet` for security headers, and `express-rate-limit` on auth and public endpoints.
+* **Audit trails:** For CRUD on money-ish objects (invoices, payments), insert a simple audit log table capturing `who/when/what`.
+* **Secrets policy:** Enforce “no default secret” rule. Add a healthcheck that fails if critical envs are missing.
+
+# Next steps (ordered so you can move fast)
+
+1. **Lock down auth & roles**: force `"client"` role on signup; add admin-only role update route.
+2. **Tenant safety**: add `ownerId` columns + route/storage filtering. Ship a quick hotfix that filters by `req.user.id` in storage while you draft migrations.
+3. **JWT cookie auth**: move tokens to HttpOnly cookies or at least add CSP + sanitize strategy if you must keep `localStorage` temporarily.
+4. **Migrations & seed**: generate and commit Drizzle migrations; add a `seed` owner.
+5. **Rate-limit + helmet**: enable immediately.
+6. **Log redaction**: stop logging whole JSON responses on `/api/*`; redact or drop body logging in prod.
+7. **Automation lock**: wrap cron with a DB lock so only one instance runs scheduled tasks.
+8. **Email flows**: add verify + reset flows; gate privileged actions behind verified email.
+
+If you want, I can patch the repo to: (a) add `ownerId` everywhere with Drizzle migrations, (b) gate signup role, (c) add rate-limit/helmet, and (d) switch to cookie-based auth in one pass. Then we can layer pagination and audit logs.

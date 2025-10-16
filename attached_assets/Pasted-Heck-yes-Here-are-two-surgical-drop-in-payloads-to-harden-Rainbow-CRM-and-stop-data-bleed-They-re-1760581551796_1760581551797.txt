@@ -1,0 +1,342 @@
+Heck yes. Here are two surgical, drop-in payloads to harden Rainbow CRM and stop data bleed. They’re copy/paste-ready and won’t fight the rest of your stack.
+
+---
+
+# Payload 1 — Security & Auth Hardening (roles, cookies, rate-limit, safe logs)
+
+## 1) Force safe role on signup + add role-update endpoint (admin/owner only)
+
+**server/routes.ts**
+
+```ts
+// ⬇️ import at top
+import { requireAuth, requireRole } from "./security";
+import { z } from "zod";
+import bcrypt from "bcrypt";
+
+// ... inside your router setup:
+
+// SIGNUP — force "client" role (ignore any incoming role)
+router.post("/api/auth/signup", async (req, res) => {
+  const schema = z.object({
+    username: z.string().min(3),
+    email: z.string().email(),
+    password: z.string().min(8),
+    fullName: z.string().min(1),
+    // ❌ role omitted on purpose
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { username, email, password, fullName } = parsed.data;
+  const hashed = await bcrypt.hash(password, 12);
+
+  const user = await storage.createUser({
+    username,
+    email,
+    password: hashed,
+    fullName,
+    role: "client", // ⬅️ FORCE a safe default
+    emailVerified: false,
+  });
+
+  return res.status(201).json({ id: user.id, email: user.email, role: user.role });
+});
+
+// ADMIN: change role (owner/admin only)
+router.patch("/api/users/:id/role",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    const schema = z.object({ role: z.enum(["owner","admin","staff","client"]) });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const updated = await storage.updateUserRole(req.params.id, parsed.data.role);
+    return res.json({ id: updated.id, role: updated.role });
+  }
+);
+```
+
+**server/security.ts** (new)
+
+```ts
+import type { Request, Response, NextFunction } from "express";
+
+export function requireAuth(req: any, res: Response, next: NextFunction) {
+  if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+  next();
+}
+
+export function requireRole(...allowed: string[]) {
+  return (req: any, res: Response, next: NextFunction) => {
+    const role = req.user?.role;
+    if (!role || !allowed.includes(role)) return res.status(403).json({ error: "Forbidden" });
+    next();
+  };
+}
+```
+
+## 2) Move JWT to HttpOnly cookies (short-lived access + refresh)
+
+**server/auth.ts** (adapt to your file; core idea below)
+
+```ts
+import jwt from "jsonwebtoken";
+import { Response } from "express";
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET must be set");
+
+export function issueTokens(res: Response, user: { id: string; role: string }) {
+  const access = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, { expiresIn: "15m" });
+  const refresh = jwt.sign({ sub: user.id, type: "refresh" }, JWT_SECRET, { expiresIn: "7d" });
+
+  const cookieBase = { httpOnly: true, secure: true, sameSite: "lax", path: "/" as const };
+  res.cookie("access_token", access, { ...cookieBase, maxAge: 15 * 60 * 1000 });
+  res.cookie("refresh_token", refresh, { ...cookieBase, maxAge: 7 * 24 * 60 * 60 * 1000 });
+}
+
+export function clearTokens(res: Response) {
+  res.clearCookie("access_token");
+  res.clearCookie("refresh_token");
+}
+```
+
+**server/index.ts** — add cookie parsing + auth bootstrap
+
+```ts
+import cookieParser from "cookie-parser";
+import jwt from "jsonwebtoken";
+
+app.use(cookieParser());
+
+// attach req.user from cookie
+app.use((req: any, _res, next) => {
+  const token = req.cookies?.access_token;
+  if (token) {
+    try {
+      const payload = jwt.verify(token, process.env.JWT_SECRET!);
+      req.user = { id: (payload as any).sub, role: (payload as any).role };
+    } catch (_) {
+      // silently ignore; client can hit /api/auth/refresh to rotate
+    }
+  }
+  next();
+});
+```
+
+**server/routes.ts** — login using cookie tokens
+
+```ts
+router.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body ?? {};
+  const user = await storage.findUserByEmail(email);
+  if (!user) return res.status(401).json({ error: "Invalid credentials" });
+
+  const ok = await bcrypt.compare(password, user.password);
+  if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+
+  issueTokens(res, { id: user.id, role: user.role });
+  return res.json({ id: user.id, email: user.email, role: user.role });
+});
+
+router.post("/api/auth/logout", (req, res) => { clearTokens(res); res.json({ ok: true }); });
+
+router.post("/api/auth/refresh", (req: any, res) => {
+  const rt = req.cookies?.refresh_token;
+  if (!rt) return res.status(401).json({ error: "No refresh" });
+  try {
+    const p = jwt.verify(rt, process.env.JWT_SECRET!);
+    issueTokens(res, { id: (p as any).sub, role: req.user?.role ?? "client" });
+    res.json({ ok: true });
+  } catch {
+    clearTokens(res);
+    res.status(401).json({ error: "Invalid refresh" });
+  }
+});
+```
+
+> Frontend change: stop reading/writing tokens to `localStorage`. Rely on cookies (browser sends them automatically). On 401, call `/api/auth/refresh`, then retry once.
+
+## 3) Rate-limit, Helmet, and log redaction
+
+**server/index.ts**
+
+```ts
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+
+app.use(helmet({
+  // keep defaults; add CSP later if you inline scripts
+}));
+
+const authLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 20, // 20 attempts / 10 min per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api/auth/", authLimiter);
+
+// ✅ Replace noisy body logging with safe metadata logs
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const dur = Date.now() - start;
+    console.info(`[${req.method}] ${req.originalUrl} → ${res.statusCode} in ${dur}ms`);
+  });
+  next();
+});
+```
+
+---
+
+# Payload 2 — Multitenancy Guard + Migrations (ownerId everywhere)
+
+## 1) Drizzle migration: add `ownerId` to core tables
+
+**drizzle/0001_add_ownerId.sql**
+
+```sql
+-- Users table assumed existing.
+
+ALTER TABLE clients ADD COLUMN ownerId uuid;
+ALTER TABLE proposals ADD COLUMN ownerId uuid;
+ALTER TABLE bookings ADD COLUMN ownerId uuid;
+ALTER TABLE invoices ADD COLUMN ownerId uuid;
+
+-- FK (adjust names to your actual schema)
+ALTER TABLE clients ADD CONSTRAINT clients_owner_fk FOREIGN KEY ("ownerId") REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE proposals ADD CONSTRAINT proposals_owner_fk FOREIGN KEY ("ownerId") REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE bookings ADD CONSTRAINT bookings_owner_fk FOREIGN KEY ("ownerId") REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE invoices ADD CONSTRAINT invoices_owner_fk FOREIGN KEY ("ownerId") REFERENCES users(id) ON DELETE CASCADE;
+
+-- Optional: backfill new rows with self-ownership (temporary)
+-- UPDATE clients SET "ownerId" = createdBy; -- if you have createdBy
+-- Otherwise, set to the first admin/owner id as a stopgap (manual step).
+```
+
+> Repeat for other tables later (tasks, boards, messages, etc.). Start with these four to stop the biggest leaks.
+
+## 2) Tenant-scoped storage helpers
+
+**server/storage.ts** (patterns; replicate per entity)
+
+```ts
+import { db } from "./db";
+import * as schema from "./shared/schema";
+import { eq, desc } from "drizzle-orm";
+
+export async function getAllClients(ownerId: string) {
+  return db.select().from(schema.clients)
+    .where(eq(schema.clients.ownerId, ownerId))
+    .orderBy(desc(schema.clients.createdAt));
+}
+
+export async function createClient(ownerId: string, input: schema.InsertClient) {
+  const [row] = await db.insert(schema.clients)
+    .values({ ...input, ownerId })
+    .returning();
+  return row;
+}
+
+export async function getClientById(ownerId: string, id: string) {
+  const [row] = await db.select().from(schema.clients)
+    .where(eq(schema.clients.id, id))
+    .where(eq(schema.clients.ownerId, ownerId));
+  return row ?? null;
+}
+```
+
+## 3) Tenant guard middleware (ensures `req.user` & passes ownerId through)
+
+**server/tenant.ts** (new)
+
+```ts
+import type { Response, NextFunction } from "express";
+
+export function requireTenant(handler: (req: any, res: Response) => Promise<any> | any) {
+  return (req: any, res: Response, next: NextFunction) => {
+    if (!req.user?.id) return res.status(401).json({ error: "Not authenticated" });
+    // Attach ownerId (if you later support staff, you can map staff → ownerId here)
+    req.ownerId = req.user.id;
+    return handler(req, res);
+  };
+}
+```
+
+## 4) Route wiring (owner-scoped)
+
+**server/routes.ts** (example for Clients)
+
+```ts
+import { requireAuth } from "./security";
+import { requireTenant } from "./tenant";
+import { z } from "zod";
+
+router.get("/api/clients",
+  requireAuth,
+  requireTenant(async (req: any, res) => {
+    const rows = await storage.getAllClients(req.ownerId);
+    res.json(rows);
+  })
+);
+
+router.post("/api/clients",
+  requireAuth,
+  requireTenant(async (req: any, res) => {
+    const schema = z.object({
+      name: z.string().min(1),
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+      notes: z.string().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const created = await storage.createClient(req.ownerId, parsed.data);
+    res.status(201).json(created);
+  })
+);
+
+router.get("/api/clients/:id",
+  requireAuth,
+  requireTenant(async (req: any, res) => {
+    const row = await storage.getClientById(req.ownerId, req.params.id);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    res.json(row);
+  })
+);
+```
+
+> Do the same ownerId pass-through for proposals, bookings, invoices ASAP. Then expand to tasks, boards, etc.
+
+## 5) Hotfix (until all tables migrated)
+
+If some tables aren’t migrated yet, still pass `ownerId` and **add a second filter** (like `createdBy = req.ownerId`) to minimize exposure, or temporarily block “get all” routes for those entities to owner-only views.
+
+---
+
+## Smoke-test checklist (run right after payloads)
+
+* Create a fresh user → inspect DB: user has role `client`.
+* Try calling `PATCH /api/users/:id/role` as a client → 403.
+* Login → cookies `access_token` & `refresh_token` are set (HttpOnly, Secure).
+* Hit a protected route from the browser → works without manual token plumbing.
+* `GET /api/clients` only returns rows where `ownerId` = your user id.
+* Console logs show only method/path/status/duration, not bodies.
+* Hit `/api/auth/login` > 20 times in 10min from same IP → rate-limited.
+
+---
+
+## Where to go next (after these two)
+
+* Add email verify + password reset flow with signed, expiring tokens.
+* Add a distributed cron lock (DB “lease” row) for scheduled automations.
+* Add pagination on heavy lists (clients, bookings).
+* CSP header tuned to your frontend to shrink XSS window.
+
+Want me to hand you a third payload for the cron lock + email verification?
