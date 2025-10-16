@@ -1,0 +1,134 @@
+Absolutely. Here’s **Phase 12 — Client Portal 2.0 + Live AI Agents** as a ready-to-run payload pack. It adds a gorgeous client-facing portal (light/dark/system), real-time status (SSE), mirrored task checklists, per-approval actions, and an AI chat assistant that can answer booking questions, fetch task/approval status, and trigger preview generation. Stubs fall back gracefully if you don’t set external API keys.
+
+---
+
+# 📦 `PAYLOAD_PHASE_12.json`
+
+```json
+{
+  "version": "12.0.0",
+  "description": "Phase 12 — Client Portal 2.0 (real-time) + AI Chat Agents (tools for status and previews) with system/light/dark aesthetics",
+  "changes": [
+    {
+      "path": "server/realtime.ts",
+      "action": "create",
+      "contents": "import { EventEmitter } from 'events';\nexport const bus = new EventEmitter();\nexport function emitEvent(ownerId: string, type: string, payload: any){ bus.emit(`evt:${ownerId}`, { type, payload, ts: Date.now() }); }\nexport function subscribe(ownerId: string, onMsg: (m:any)=>void){ const ch = (m:any)=>onMsg(m); bus.on(`evt:${ownerId}`, ch); return ()=>bus.off(`evt:${ownerId}`, ch); }\n"
+    },
+    {
+      "path": "server/portal.util.ts",
+      "action": "create",
+      "contents": "import jwt from 'jsonwebtoken';\nimport { db } from './db';\nimport * as schema from '../shared/schema';\nimport { eq, and } from 'drizzle-orm';\n\nconst JWT_SECRET = process.env.JWT_SECRET!;\n\nexport async function decodePortalToken(token: string){\n  const data: any = jwt.verify(token, JWT_SECRET);\n  return data; // { id: approvalId? bookingId? ownerId? }\n}\n\nexport async function getPortalState(ownerId: string, bookingId: string){\n  const [booking] = await db.select().from(schema.bookings).where(and(eq(schema.bookings.ownerId, ownerId), eq(schema.bookings.id, bookingId)));\n  if(!booking) return null;\n  const approvals = await db.select().from(schema.approvals).where(and(eq(schema.approvals.ownerId, ownerId), eq(schema.approvals.bookingId, bookingId)));\n  const tasks = await db.select().from(schema.tasks).where(and(eq(schema.tasks.ownerId, ownerId), eq(schema.tasks.bookingId, bookingId)));\n  // invoices optional: if you have invoices table; else stub\n  const invoices: any[] = [];\n  return { booking, approvals: approvals.filter(a=>a.clientVisible), tasks: tasks.filter(t=>t.clientVisible), invoices };\n}\n"
+    },
+    {
+      "path": "server/routes.portal.ts",
+      "action": "create",
+      "contents": "import { Router } from 'express';\nimport { decodePortalToken, getPortalState } from './portal.util';\nimport { db } from './db';\nimport * as schema from '../shared/schema';\nimport { eq, and } from 'drizzle-orm';\nimport { emitEvent } from './realtime';\nimport jwt from 'jsonwebtoken';\n\nconst r = Router();\n\n// Create a booking portal token (admin)\nr.post('/api/portal/share', async (req:any, res)=>{\n  const { ownerId, bookingId } = req.body || {};\n  if(!ownerId || !bookingId) return res.status(400).json({ error:'missing ownerId/bookingId' });\n  const token = jwt.sign({ ownerId, bookingId }, process.env.JWT_SECRET!, { expiresIn:'14d' });\n  res.json({ url: `/portal/${token}` });\n});\n\n// Client portal state (authless via token)\nr.get('/api/portal/:token/state', async (req, res)=>{\n  try{\n    const data = await decodePortalToken(req.params.token);\n    const state = await getPortalState(data.ownerId, data.bookingId);\n    if(!state) return res.status(404).json({ error:'not found' });\n    res.json(state);\n  }catch{ res.status(400).json({ error:'bad token' }); }\n});\n\n// Real-time (SSE) updates for portal\nr.get('/api/portal/:token/events', async (req, res)=>{\n  res.setHeader('Content-Type','text/event-stream');\n  res.setHeader('Cache-Control','no-cache');\n  res.setHeader('Connection','keep-alive');\n  try{\n    const data = await decodePortalToken(req.params.token);\n    const un = (m:any)=>{ res.write(`data: ${JSON.stringify(m)}\\n\\n`); };\n    const { subscribe } = await import('./realtime');\n    const unsub = subscribe(data.ownerId, un);\n    req.on('close', ()=>{ unsub(); res.end(); });\n  }catch{ res.status(400).end(); }\n});\n\n// Toggle client-visible task done (portal)\nr.post('/api/portal/:token/tasks/:id/toggle', async (req, res)=>{\n  try{\n    const { ownerId, bookingId } = await decodePortalToken(req.params.token);\n    const [task] = await db.select().from(schema.tasks).where(and(eq(schema.tasks.ownerId, ownerId), eq(schema.tasks.id, req.params.id)));\n    if(!task || task.bookingId !== bookingId || !task.clientVisible) return res.status(404).json({ error:'task not found' });\n    const [row] = await db.update(schema.tasks).set({ done: !task.done }).where(eq(schema.tasks.id, task.id)).returning();\n    emitEvent(ownerId, 'task.updated', { id: row.id, done: row.done });\n    res.json(row);\n  }catch{ res.status(400).json({ error:'bad token' }); }\n});\n\n// Approve / feedback an approval (portal)\nr.post('/api/portal/:token/approvals/:id/action', async (req:any, res)=>{\n  try{\n    const { ownerId, bookingId } = await decodePortalToken(req.params.token);\n    const { action, feedback } = req.body || {};\n    const [ap] = await db.select().from(schema.approvals).where(and(eq(schema.approvals.ownerId, ownerId), eq(schema.approvals.id, req.params.id)));\n    if(!ap || ap.bookingId !== bookingId || !ap.clientVisible) return res.status(404).json({ error:'not found' });\n    const status = action === 'approve' ? 'approved' : 'feedback';\n    const [row] = await db.update(schema.approvals).set({ status, feedback: feedback ?? ap.feedback, updatedAt: new Date() }).where(eq(schema.approvals.id, ap.id)).returning();\n    emitEvent(ownerId, 'approval.updated', { id: row.id, status: row.status });\n    if(status === 'feedback'){\n      const { onApprovalFeedback } = await import('./hooks.smartFeedback');\n      await onApprovalFeedback(ownerId, row.id);\n    }\n    res.json(row);\n  }catch{ res.status(400).json({ error:'bad token' }); }\n});\n\nexport default r;\n"
+    },
+    {
+      "path": "server/routes.aiChat.ts",
+      "action": "create",
+      "contents": "import { Router } from 'express';\nimport { decodePortalToken, getPortalState } from './portal.util';\nimport { designAgent } from './agents.design';\n\nconst r = Router();\n\n// Simple AI chat endpoint for portal — tool-augmented\n// Tools: get_status, list_tasks, list_approvals, generate_preview\nasync function runAssistant(prompt:string, tools:any){\n  // If OPENAI_API_KEY is set, call OpenAI; otherwise fall back to rule-based responses\n  if(process.env.OPENAI_API_KEY){\n    try{\n      const fetch = (await import('node-fetch')).default as any;\n      const toolDesc = Object.keys(tools).join(', ');\n      const sys = `You are Empress Assistant. You can use tools: ${toolDesc}. Keep replies concise.`;\n      const body = { model: 'gpt-4o-mini', messages: [{role:'system',content:sys},{role:'user',content:prompt}] };\n      const resp = await fetch('https://api.openai.com/v1/chat/completions',{ method:'POST', headers:{'Authorization':`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'}, body: JSON.stringify(body)});\n      const data = await resp.json();\n      return data?.choices?.[0]?.message?.content ?? 'Done.';\n    }catch(e){ return `Assistant error: ${String(e)}`; }\n  }\n  // Fallback: tiny rule-based\n  const p = prompt.toLowerCase();\n  if(p.includes('status')||p.includes('how are we doing')) return tools.get_status();\n  if(p.includes('task')) return tools.list_tasks();\n  if(p.includes('approval')||p.includes('design')) return tools.list_approvals();\n  if(p.includes('preview')||p.includes('overlay')) return tools.generate_preview();\n  return 'Ask me about status, tasks, approvals, or say \"generate preview\".';\n}\n\nr.post('/api/portal/:token/chat', async (req, res)=>{\n  try{\n    const { ownerId, bookingId } = await decodePortalToken(req.params.token);\n    const state = await getPortalState(ownerId, bookingId);\n    if(!state) return res.status(404).json({ error:'not found' });\n    const tools = {\n      get_status: ()=>`Booking: ${state.booking.title} — status: ${state.booking.status}. ${state.tasks.filter(t=>!t.done).length} client tasks remaining.`,\n      list_tasks: ()=> state.tasks.map(t=>`• ${t.title}${t.done? ' (done)':''}`).join('\\n') || 'No client tasks.',\n      list_approvals: ()=> state.approvals.map(a=>`• ${a.title} — ${a.status}`).join('\\n') || 'No approvals yet.',\n      generate_preview: async ()=>{ const a = state.approvals[0]; if(!a) return 'No approval record to attach preview to.'; await designAgent(ownerId, a.id, `${state.booking.title} ${a.kind}`); return 'Generating a fresh preview and attaching to your approval…'; }\n    } as any;\n    const reply = await runAssistant(String(req.body?.message||''), tools);\n    res.json({ reply });\n  }catch{ res.status(400).json({ error:'bad token' }); }\n});\n\nexport default r;\n"
+    },
+    {
+      "path": "server/index.ts",
+      "action": "patch",
+      "contents": "// ➕ mount portal + chat routes\nimport portalRoutes from './routes.portal';\nimport aiChatRoutes from './routes.aiChat';\napp.use(portalRoutes);\napp.use(aiChatRoutes);\n"
+    },
+    {
+      "path": "client/src/pages/Portal.tsx",
+      "action": "create",
+      "contents": "import { useEffect, useMemo, useRef, useState } from 'react';\nimport ThemeToggle from '../components/ThemeToggle';\n\nfunction usePortalState(token:string){\n  const [state,setState] = useState<any|null>(null);\n  useEffect(()=>{ fetch(`/api/portal/${token}/state`).then(r=>r.json()).then(setState); },[token]);\n  useEffect(()=>{ const es = new EventSource(`/api/portal/${token}/events`); es.onmessage = (e)=>{ const m = JSON.parse(e.data); if(m?.type==='task.updated'){ setState((s:any)=>({...s, tasks: s.tasks.map((t:any)=>t.id===m.payload.id? {...t, done:m.payload.done}:t)})); } if(m?.type==='approval.updated'){ setState((s:any)=>({...s, approvals: s.approvals.map((a:any)=>a.id===m.payload.id? {...a, status:m.payload.status}:a)})); } }; return ()=>es.close(); },[token]);\n  return state;\n}\n\nexport default function Portal(){\n  const token = window.location.pathname.split('/').pop() as string;\n  const state = usePortalState(token);\n  const [msg,setMsg] = useState('');\n  const [chat,setChat] = useState<{from:'you'|'ai'; text:string}[]>([]);\n  const send = async ()=>{ if(!msg.trim()) return; const m = msg; setMsg(''); setChat(c=>[...c,{from:'you',text:m}]); const r = await fetch(`/api/portal/${token}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m})}); const data = await r.json(); setChat(c=>[...c,{from:'ai',text:data.reply}]); };\n\n  if(!state) return <div className='min-h-screen bg-neutral-950 text-neutral-100 p-6'>Loading…</div>;\n  const { booking, approvals, tasks } = state;\n\n  return (\n    <div className='min-h-screen bg-neutral-950 text-neutral-100'>\n      <header className='max-w-6xl mx-auto px-6 py-5 flex items-center justify-between'>\n        <div>\n          <h1 className='text-2xl font-semibold'>{booking.title}</h1>\n          <div className='text-neutral-400 text-sm'>{new Date(booking.startAt).toLocaleString()} @ {booking.venueName || 'TBA'}</div>\n        </div>\n        <ThemeToggle/>\n      </header>\n\n      <main className='max-w-6xl mx-auto px-6 pb-12'>\n        {/* Status Cards */}\n        <div className='grid grid-cols-1 md:grid-cols-3 gap-5'>\n          <Card title='Status' glow='pink'><div className='text-xl font-semibold capitalize'>{booking.status}</div></Card>\n          <Card title='Tasks' glow='blue'><div className='text-2xl font-semibold'>{tasks.filter((t:any)=>!t.done).length}<span className='text-sm text-neutral-400'> open</span></div></Card>\n          <Card title='Approvals' glow='emerald'><div className='text-2xl font-semibold'>{approvals.filter((a:any)=>a.status!=='approved').length}<span className='text-sm text-neutral-400'> pending</span></div></Card>\n        </div>\n\n        {/* Task Checklist */}\n        <section className='mt-8'>\n          <h2 className='text-lg font-medium mb-2'>Your Action Items</h2>\n          <div className='rounded-2xl glass border border-white/10 p-4'>\n            {tasks.length===0? <div className='text-neutral-400 text-sm'>No client tasks.</div> : (\n              <ul className='divide-y divide-white/10'>\n                {tasks.map((t:any)=> (\n                  <li key={t.id} className='py-3 flex items-center justify-between'>\n                    <label className='flex items-center gap-3 text-sm'>\n                      <input type='checkbox' checked={!!t.done} onChange={async()=>{ await fetch(`/api/portal/${token}/tasks/${t.id}/toggle`,{method:'POST'}); }} />\n                      <span>{t.title}</span>\n                    </label>\n                    <span className='text-xs text-neutral-500'>{t.dueAt? new Date(t.dueAt).toLocaleDateString(): ''}</span>\n                  </li>\n                ))}\n              </ul>\n            )}\n          </div>\n        </section>\n\n        {/* Approvals */}\n        <section className='mt-8'>\n          <h2 className='text-lg font-medium mb-2'>Design Approvals</h2>\n          <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>\n            {approvals.map((a:any)=> (\n              <div key={a.id} className='rounded-2xl glass border border-white/10 p-4'>\n                <div className='flex items-center justify-between'>\n                  <div>\n                    <div className='uppercase text-xs text-neutral-400'>{a.kind}</div>\n                    <div className='text-lg font-medium'>{a.title}</div>\n                  </div>\n                  <Badge status={a.status}/>\n                </div>\n                {a.draftUrl && <img src={a.draftUrl} className='rounded-xl border border-white/10 mt-3'/>}\n                <div className='mt-3 flex gap-2'>\n                  <button className='px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-sm' onClick={async()=>{await fetch(`/api/portal/${token}/approvals/${a.id}/action`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'approve'})});}}>Approve</button>\n                  <button className='px-3 py-2 rounded-lg bg-yellow-600 hover:bg-yellow-700 text-sm' onClick={async()=>{const fb = prompt('Tell us what to change:'); await fetch(`/api/portal/${token}/approvals/${a.id}/action`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'feedback',feedback:fb})});}}>Request Changes</button>\n                </div>\n              </div>\n            ))}\n          </div>\n        </section>\n\n        {/* AI Chat */}\n        <section className='mt-8'>\n          <h2 className='text-lg font-medium mb-2'>Assistant</h2>\n          <div className='rounded-2xl glass border border-white/10 p-4'>\n            <div className='min-h-[160px] space-y-2 text-sm'>\n              {chat.map((m,i)=> <div key={i} className={m.from==='ai'? 'text-pink-300':'text-neutral-200'}><b>{m.from==='ai'?'Empress':'You'}:</b> {m.text}</div>)}\n              {chat.length===0 && <div className='text-neutral-400'>Ask things like: \"What\'s left to do?\", \"List my approvals\", or \"Generate a preview\".</div>}\n            </div>\n            <div className='mt-3 flex gap-2'>\n              <input value={msg} onChange={e=>setMsg(e.target.value)} placeholder='Type a message…' className='flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2' />\n              <button onClick={send} className='px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700'>Send</button>\n            </div>\n          </div>\n        </section>\n      </main>\n    </div>\n  );\n}\n\nfunction Card({ title, children, glow }:{title:string; children:any; glow:'pink'|'blue'|'emerald'}){\n  const glowMap:any = { pink:'shadow-[0_0_24px_rgba(236,72,153,.25)]', blue:'shadow-[0_0_24px_rgba(59,130,246,.25)]', emerald:'shadow-[0_0_24px_rgba(16,185,129,.25)]' };\n  return <div className={`rounded-2xl glass border border-white/10 p-4 ${glowMap[glow]}`}> <div className='text-sm text-neutral-400'>{title}</div> <div className='mt-1'>{children}</div> </div>;\n}\n\nfunction Badge({ status }:{status:string}){\n  const map:any = { draft:'bg-neutral-700', sent:'bg-blue-600', feedback:'bg-yellow-600', approved:'bg-emerald-600', rejected:'bg-rose-700' };\n  return <span className={`text-xs px-2 py-1 rounded-full ${map[status]||'bg-neutral-700'}`}>{status}</span>;\n}\n"
+    },
+    {
+      "path": "client/src/App.tsx",
+      "action": "patch",
+      "contents": "// ➕ route for client portal\nimport Portal from './pages/Portal';\n// inside <Routes> add:\n// <Route path=\"/portal/:token\" element={<Portal/>} />\n"
+    },
+    {
+      "path": "client/src/index.css",
+      "action": "patch",
+      "contents": "/* Ensure light/dark glass map applies to portal as well */\nhtml.light .glass{ background: rgba(255,255,255,.7); color:#111; border-color: rgba(0,0,0,.08);} \n"
+    },
+    {
+      "path": ".env.example",
+      "action": "patch",
+      "contents": "OPENAI_API_KEY=your_openai_key_optional\n"
+    },
+    {
+      "path": "server/routes.approvals.ts",
+      "action": "create",
+      "contents": "import { Router } from 'express';\nimport { db } from './db';\nimport * as schema from '../shared/schema';\nimport { eq, and } from 'drizzle-orm';\nimport { emitEvent } from './realtime';\n\nconst r = Router();\n\n// Generic admin approval status change (emits realtime)\nr.post('/api/admin/approvals/:id/status', async (req:any, res)=>{\n  const { status } = req.body || {};\n  const [row] = await db.update(schema.approvals).set({ status, updatedAt: new Date() }).where(eq(schema.approvals.id, req.params.id)).returning();\n  if(row) emitEvent(row.ownerId, 'approval.updated', { id: row.id, status: row.status });\n  res.json(row);\n});\n\nexport default r;\n"
+    },
+    {
+      "path": "server/index.ts",
+      "action": "patch",
+      "contents": "// emit events on task changes from admin as well\nimport approvalsAdmin from './routes.approvals';\napp.use(approvalsAdmin);\n"
+    }
+  ]
+}
+```
+
+---
+
+## What Phase 12 gives you
+
+* **Client Portal 2.0**
+
+  * Shareable portal link (`/api/portal/share`) → `/portal/:token`
+  * **System/Light/Dark** glass aesthetic, matching Empress AI Studio
+  * Status tiles, **client-visible task checklist** (toggleable), and **approval actions** (Approve / Request Changes)
+
+* **Real-time updates**
+
+  * **SSE channel** (`/api/portal/:token/events`) broadcasts `task.updated` and `approval.updated`
+  * Admin-side changes immediately reflect in the client portal
+
+* **AI Chat Assistant**
+
+  * Endpoint: `/api/portal/:token/chat`
+  * Built-in tools: `get_status`, `list_tasks`, `list_approvals`, `generate_preview` (triggers your **AI Design Agent**)
+  * Uses `OPENAI_API_KEY` if provided; otherwise smart rule-based fallback
+
+---
+
+## Quick setup & smoke tests
+
+1. **Build & run**
+
+```
+npm run drizzle:migrate
+npm run build && npm run start
+```
+
+2. **Create a portal link**
+
+```bash
+curl -X POST http://localhost:3000/api/portal/share \
+  -H 'Content-Type: application/json' \
+  -d '{ "ownerId": "<owner-uuid>", "bookingId": "<booking-uuid>" }'
+```
+
+Open the returned `/portal/<token>` URL.
+
+3. **Real-time check**
+
+* In admin, approve or toggle a task (via API/UI) → see portal update instantly.
+
+4. **AI chat**
+
+* In the portal’s Assistant, type:
+
+  * “What’s left to do?”
+  * “List my approvals”
+  * “Generate a preview” (it will call your **Design Agent** and attach a new draft to the first approval)
+
+---
+
+## Notes & next steps
+
+* **Security:** Portal tokens expire after 14 days (tweak in `routes.portal.ts`). You can regenerate/share as needed.
+* **Invoices:** The portal includes a placeholder array; wire to your invoices table when ready.
+* **Webhooks:** All previous agents (11.1–11.5) continue to function; SSE just surfaces them live to clients.
+* **OpenAI:** Optional. If unset, the assistant still answers with rule-based tool calls.
+
+If you want, I can follow up with **Phase 12.1** for **invoice payments in-portal** (Stripe/PayPal) and **staff chat channels** with role-aware presence — same Empress aesthetic, naturally.

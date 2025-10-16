@@ -1,11 +1,20 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 import EmbedFrame from '@/components/EmbedFrame';
 import BackgroundPicker from '@/components/BackgroundPicker';
-import { FileImage, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { FileImage, CheckCircle2, XCircle, Clock, Plus } from 'lucide-react';
 
 interface Approval {
   id: string;
@@ -16,16 +25,61 @@ interface Approval {
   createdAt: string;
 }
 
+const approvalFormSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200),
+  description: z.string().min(1, 'Description is required'),
+});
+
+type ApprovalFormData = z.infer<typeof approvalFormSchema>;
+
 export default function Approvals() {
   const [selectedBackground, setSelectedBackground] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const { toast } = useToast();
+
+  const form = useForm<ApprovalFormData>({
+    resolver: zodResolver(approvalFormSchema),
+    defaultValues: {
+      title: '',
+      description: '',
+    },
+  });
 
   const { data: approvals, isLoading } = useQuery<Approval[]>({
     queryKey: ['/api/approvals'],
   });
 
+  const createApprovalMutation = useMutation({
+    mutationFn: (data: ApprovalFormData) => 
+      apiRequest('/api/approvals', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/approvals'] });
+      toast({
+        title: 'Success',
+        description: 'Approval request created successfully',
+      });
+      setDialogOpen(false);
+      form.reset();
+    },
+    onError: () => {
+      toast({
+        title: 'Error',
+        description: 'Failed to create approval request',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const handleBackgroundSelect = (url: string) => {
     setSelectedBackground(url);
     console.log('Selected background:', url);
+  };
+
+  const onSubmit = (data: ApprovalFormData) => {
+    createApprovalMutation.mutate(data);
   };
 
   const getStatusBadge = (status: string) => {
@@ -49,13 +103,79 @@ export default function Approvals() {
 
   return (
     <div className="container mx-auto p-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-500 bg-clip-text text-transparent">
-          Approvals Center
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Manage client approvals, select backgrounds, and collaborate on creative assets
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-500 bg-clip-text text-transparent">
+            Approvals Center
+          </h1>
+          <p className="text-muted-foreground mt-2">
+            Manage client approvals, select backgrounds, and collaborate on creative assets
+          </p>
+        </div>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button data-testid="button-new-approval">
+              <Plus className="h-4 w-4 mr-2" />
+              New Approval
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create Approval Request</DialogTitle>
+              <DialogDescription>
+                Create a new approval request for client review
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Title</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          placeholder="e.g., Wedding Backdrop Design"
+                          data-testid="input-approval-title"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea 
+                          {...field} 
+                          placeholder="Describe the approval request..."
+                          rows={4}
+                          data-testid="input-approval-description"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <Button 
+                    type="submit" 
+                    disabled={createApprovalMutation.isPending}
+                    data-testid="button-create-approval"
+                  >
+                    {createApprovalMutation.isPending ? 'Creating...' : 'Create Approval'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Creative Libraries Section */}
@@ -66,12 +186,12 @@ export default function Approvals() {
         </h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <EmbedFrame
-            src="https://pbbackdrops.com/collections/all"
-            title="PB Backdrops"
+            src="https://unsplash.com/s/photos/backdrop"
+            title="Backdrop Inspiration"
           />
           <EmbedFrame
-            src="https://paddee.io"
-            title="Paddee Templates"
+            src="https://unsplash.com/s/photos/event-design"
+            title="Design Templates"
           />
         </div>
       </div>

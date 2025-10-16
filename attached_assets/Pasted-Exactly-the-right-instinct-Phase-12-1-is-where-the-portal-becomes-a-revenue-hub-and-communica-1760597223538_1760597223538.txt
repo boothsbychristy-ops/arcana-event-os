@@ -1,0 +1,81 @@
+Exactly the right instinct — Phase **12.1** is where the portal becomes a *revenue hub and communications layer*. Let’s sketch what’s coming before we ship code payloads.
+
+---
+
+### 💳 Payment Hub (Stripe | Square | PayPal | Checks | Offline)
+
+We’ll add a unified **Payments Service** that abstracts all payment methods through one interface:
+
+**Structure**
+
+* `payments` table → `{ id, bookingId, method, amount, status, transactionId, meta }`
+* **Stripe + Square + PayPal SDKs** wired as modular gateways
+* **Check / Manual Payment** → admin can mark “Received”
+* **Other options** → Venmo, Zelle, custom instructions field
+
+**UI**
+
+* Client portal gets a **“Billing & Payments”** card showing:
+
+  * Total owed / paid / remaining
+  * Buttons: *Pay with Stripe*, *Pay with PayPal*, *Request Square Link*, *Mark as Paid (Manual)*
+* Receipts auto-emailed via `POST /api/payments/receipt`
+* Status instantly mirrored to CRM dashboard and portal via the existing SSE event bus (`emitEvent(ownerId, 'payment.updated', {...})`)
+
+**Design**
+
+* Same **neon glass aesthetic**, adaptive light/dark
+* When payment succeeds → confetti burst micro-animation
+* When balance = 0 → portal header glows **emerald** and shows “Paid in Full” tag
+
+---
+
+### 💬 Staff Chat Channels (Internal + Client View)
+
+**Core idea**
+Each booking gets its own threaded chat room. Staff messages stay internal by default; toggling *“share with client”* mirrors them to the portal thread.
+
+**Database**
+`chat_messages` → `{ id, bookingId, senderId, senderRole, text, visibleToClient, createdAt }`
+
+**Server**
+
+* `/api/chat/send`  – insert message, broadcast via `emitEvent(ownerId, 'chat.new', {...})`
+* `/api/chat/history`  – fetch messages for bookingId
+* WebSocket/SSE keeps portal + admin in sync
+
+**UI**
+
+* **Admin CRM**: right sidebar shows “Chat” tab per booking
+* **Client Portal**: Assistant merges its AI responses + human messages into one feed
+
+  * *Pink accent for AI*, *blue for staff*, *neutral for client*
+  * Typing indicators via ephemeral events
+  * Optional voice note attachments (stored in `/uploads`)
+
+---
+
+### 🧩 Phase 12.1 Payload Goals
+
+1. Create `payments` + `chat_messages` tables.
+2. Integrate Stripe, Square, PayPal SDK stubs (env-configurable).
+3. Extend SSE for `payment.updated` + `chat.new` events.
+4. Add `/portal/:token/payments` and `/portal/:token/chat` UIs.
+5. Admin CRM → Billing tab + internal chat drawer.
+6. Mirror payments into dashboard metrics.
+
+---
+
+### 🔮 Future Extensions
+
+* **Payment Plans & Auto-Billing**: split payments with due dates and reminders.
+* **AI Bookkeeper Agent**: summarizes revenue per event, flags unpaid balances.
+* **AI Liaison Agent**: drafts polite “Payment Reminder” messages in your tone.
+* **Voice & Video Rooms**: optional plugin using LiveKit / WebRTC for client meetings.
+
+---
+
+If you confirm, I’ll generate the **Phase 12.1 payload pack** next:
+→ one JSON you can drop into Baby Empress OS adding full payments + staff chat with matching glass UI and SSE events.
+
+Shall I go ahead and build that payload?

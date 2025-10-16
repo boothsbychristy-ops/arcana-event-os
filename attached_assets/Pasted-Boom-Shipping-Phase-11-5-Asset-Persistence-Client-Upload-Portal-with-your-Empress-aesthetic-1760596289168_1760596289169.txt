@@ -1,0 +1,98 @@
+Boom. Shipping **Phase 11.5 — Asset Persistence + Client Upload Portal** with your Empress aesthetic (dark/light/system) fully respected. This pack saves AI backgrounds/templates/backdrops into the database, lets clients upload logos/inspo straight from their share link, and shows everything in a sexy neon-glass gallery.
+
+---
+
+# 📦 `PAYLOAD_PHASE_11_5.json`
+
+```json
+{
+  "version": "11.5.0",
+  "description": "Phase 11.5 — Persist selected assets, client uploads via share link, and gallery grid in Approvals Center",
+  "changes": [
+    {
+      "path": "server/uploads.ts",
+      "action": "create",
+      "contents": "import path from 'path';\nimport fs from 'fs';\nimport multer from 'multer';\nimport express from 'express';\n\n// Ensure local upload dir exists (Replit-friendly)\nconst UPLOAD_DIR = path.join(process.cwd(), 'uploads');\nif (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);\n\n// Multer storage (filename: timestamp-original)\nconst storage = multer.diskStorage({\n  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),\n  filename: (_req, file, cb) => {\n    const safe = file.originalname.replace(/[^a-zA-Z0-9_.-]/g, '_');\n    cb(null, `${Date.now()}-${safe}`);\n  }\n});\n\nexport const upload = multer({ storage });\nexport const uploadsStatic = express.static(UPLOAD_DIR);\n"
+    },
+    {
+      "path": "server/routes.assets.ts",
+      "action": "create",
+      "contents": "import { Router } from 'express';\nimport { db } from './db';\nimport * as schema from '../shared/schema';\nimport { eq } from 'drizzle-orm';\nimport { upload } from './uploads';\n\nconst r = Router();\n\n// Helper to append an asset (url/type/label) into approvals.assetsJson.items[]\nasync function appendAsset(approvalId: string, asset: any){\n  const [row] = await db.select().from(schema.approvals).where(eq(schema.approvals.id, approvalId));\n  if (!row) throw new Error('approval not found');\n  const items = (row.assetsJson?.items || []);\n  items.push({ ...asset, uploadedAt: new Date().toISOString() });\n  await db.update(schema.approvals).set({ assetsJson: { items } }).where(eq(schema.approvals.id, approvalId));\n}\n\n// Add a remote asset by URL (admin)\nr.post('/api/approvals/:id/assets', async (req: any, res) => {\n  const { url, type = 'reference', label } = req.body || {};\n  if (!url) return res.status(400).json({ error: 'missing url' });\n  await appendAsset(req.params.id, { url, type, label });\n  res.json({ ok: true });\n});\n\n// Upload a file (client or admin); returns public URL and appends\nr.post('/api/approvals/:id/upload', upload.single('file'), async (req: any, res) => {\n  if (!req.file) return res.status(400).json({ error: 'no file' });\n  const publicBase = process.env.BASE_URL || '';\n  const url = `${publicBase}/uploads/${req.file.filename}`;\n  await appendAsset(req.params.id, { url, type: 'upload', label: req.body?.label || req.file.originalname });\n  res.json({ url });\n});\n\nexport default r;\n"
+    },
+    {
+      "path": "server/routes.approvalShare.ts",
+      "action": "patch",
+      "contents": "// ➕ add client upload UI and POST form to /api/approvals/:id/upload\n// Insert inside the HTML template (below the Approve/Request buttons):\n// <form method='post' action='/api/approvals/${id}/upload' enctype='multipart/form-data' style='margin-top:16px'>\n//   <input type='file' name='file' accept='image/*,application/pdf' />\n//   <input type='text' name='label' placeholder='Optional note (logo, inspo, etc.)' />\n//   <button type='submit' style='background:#6366f1;color:#fff;margin-left:8px'>Upload File</button>\n// </form>\n"
+    },
+    {
+      "path": "server/index.ts",
+      "action": "patch",
+      "contents": "// ➕ serve uploads and mount assets routes\nimport { uploadsStatic } from './uploads';\nimport assetRoutes from './routes.assets';\napp.use('/uploads', uploadsStatic);\napp.use(assetRoutes);\n"
+    },
+    {
+      "path": "client/src/components/AssetGrid.tsx",
+      "action": "create",
+      "contents": "export default function AssetGrid({ items }: { items: any[] }){\n  if (!items?.length) return <div className='text-sm text-neutral-400'>No assets yet.</div>;\n  return (\n    <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'>\n      {items.map((it:any, idx:number) => (\n        <div key={idx} className='rounded-xl glass p-2 border border-white/10'>\n          {it.url?.match(/\\.(png|jpg|jpeg|gif|webp)$/i) ? (\n            <img src={it.url} alt={it.label||'asset'} className='rounded-lg w-full h-36 object-cover border border-white/10' />\n          ) : (\n            <div className='text-xs text-neutral-300 break-all p-2'>{it.url}</div>\n          )}\n          <div className='mt-2 text-xs text-neutral-400 flex items-center justify-between'>\n            <span className='truncate'>{it.label || it.type}</span>\n            <span className='opacity-60'>{new Date(it.uploadedAt||Date.now()).toLocaleDateString()}</span>\n          </div>\n        </div>\n      ))}\n    </div>\n  );\n}\n"
+    },
+    {
+      "path": "client/src/pages/Approvals.tsx",
+      "action": "patch",
+      "contents": "// ➕ show asset gallery + inline AI background attach\nimport AssetGrid from '../components/AssetGrid';\nimport BackgroundPicker from '../components/BackgroundPicker';\n\n// Replace ApproveCard body with asset grid and picker control\n// Inside ApproveCard component, after buttons:\n// <div className='mt-4'>\n//   <h4 className='text-sm font-medium mb-2'>Assets</h4>\n//   <AssetGrid items={(item.assetsJson?.items) || []} />\n//   <div className='mt-4 rounded-xl glass border border-white/10'>\n//     <BackgroundPicker onSelect={async (url)=>{\n//       await fetch(`/api/approvals/${item.id}/assets`,{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ url, type:'virtual_bg', label:'AI Background' })});\n//       alert('AI background attached');\n//       location.reload();\n//     }} />\n//   </div>\n// </div>\n"
+    },
+    {
+      "path": ".env.example",
+      "action": "patch",
+      "contents": "BASE_URL=http://localhost:3000\n"
+    }
+  ]
+}
+```
+
+---
+
+## What this adds (in plain speak)
+
+* **Real asset persistence:** When you pick an AI background or paste a URL, it’s saved into `approvals.assetsJson.items[]`.
+* **Client upload portal:** Your public share page now has a tiny upload form. Clients can drop **logos, inspo images, PDFs**. Files are saved to `/uploads` and appended to the approval’s assets.
+* **Gallery grid:** The Approvals Center shows a clean, glassy **AssetGrid** with thumbnails, labels, and dates. Looks dope in both **dark neon** and **light glass**.
+
+## Quick smoke tests
+
+1. **Admin add URL asset**
+
+```bash
+curl -X POST http://localhost:3000/api/approvals/<ID>/assets \
+  -H 'Content-Type: application/json' \
+  -d '{ "url":"https://picsum.photos/1200", "type":"reference", "label":"Moodboard" }'
+```
+
+→ Refresh `/approvals`, see it in the grid.
+
+2. **Client upload**
+
+* Open a share link `/a/<token>`
+* Upload an image → it should show success and be visible in admin.
+
+3. **AI picker → attach**
+
+* In Approvals card, use the **AI Background Picker** → Generate → Use This
+* Page reloads, and your generated background appears in Assets.
+
+---
+
+## Notes & guardrails
+
+* **File storage:** Right now, uploads are saved locally under `/uploads` and served via `/uploads/*`. When you’re ready to go cloud, swap `uploads.ts` to push to **Supabase Storage** (or S3) and return a public URL — the assets route won’t change.
+* **BASE_URL:** Set in `.env` so the share link page produces correct absolute URLs for files. On Replit, use your repl URL.
+* **Security:** Public uploads are tied to a valid approval token; you can tighten with size/type limits in `multer` and virus scanning if needed.
+
+---
+
+## Next up — **Phase 11.6: Client Actions & Admin Review Flow**
+
+* Approve/reject **specific assets** (not just the whole approval).
+* Inline **commenting/annotations** on assets.
+* **Versioning**: v1/v2/v3 drafts with diff notes.
+* Staff-side **checklist linkage**: when a client uploads a logo, auto-complete “Logo received” task.
+
+Give me the go and I’ll prep **11.6** with that goodness.
