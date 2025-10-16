@@ -8,6 +8,9 @@ import rateLimit from "express-rate-limit";
 
 const app = express();
 
+// Trust proxy - Replit runs behind a proxy
+app.set('trust proxy', 1);
+
 // Security: HTTP headers protection
 app.use(helmet({
   contentSecurityPolicy: false, // Disable for now, configure later for your specific needs
