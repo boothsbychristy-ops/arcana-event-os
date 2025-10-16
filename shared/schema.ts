@@ -410,6 +410,33 @@ export const automationLogs = pgTable("automation_logs", {
   context: jsonb("context").default({}),
 });
 
+// Approvals for client design review and feedback
+export const approvals = pgTable("approvals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  bookingId: varchar("booking_id").references(() => bookings.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("pending"), // pending, approved, feedback, rejected
+  draftUrl: text("draft_url"), // AI-generated overlay/backdrop preview
+  assetsJson: jsonb("assets_json").default({}), // Store selected backgrounds, templates, etc.
+  shareToken: text("share_token").unique(), // For public sharing
+  feedbackNotes: text("feedback_notes"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Agent logs for AI Design Agent and other AI operations
+export const agentLogs = pgTable("agent_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  agent: text("agent").notNull(), // 'design', 'analysis', etc.
+  operation: text("operation").notNull(),
+  status: text("status").notNull().default("info"), // info, success, error
+  context: jsonb("context").default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
@@ -445,6 +472,8 @@ export const insertLeadSchema = createInsertSchema(leads).omit({ id: true, creat
 export const insertStaffApplicationSchema = createInsertSchema(staffApplications).omit({ id: true, createdAt: true });
 export const insertAutomationSchema = createInsertSchema(automations).omit({ id: true, createdAt: true });
 export const insertAutomationLogSchema = createInsertSchema(automationLogs).omit({ id: true, runAt: true });
+export const insertApprovalSchema = createInsertSchema(approvals).omit({ id: true, createdAt: true, approvedAt: true });
+export const insertAgentLogSchema = createInsertSchema(agentLogs).omit({ id: true, createdAt: true });
 
 // TypeScript types
 export type User = typeof users.$inferSelect;
@@ -542,6 +571,12 @@ export type InsertAutomation = z.infer<typeof insertAutomationSchema>;
 
 export type AutomationLog = typeof automationLogs.$inferSelect;
 export type InsertAutomationLog = z.infer<typeof insertAutomationLogSchema>;
+
+export type Approval = typeof approvals.$inferSelect;
+export type InsertApproval = z.infer<typeof insertApprovalSchema>;
+
+export type AgentLog = typeof agentLogs.$inferSelect;
+export type InsertAgentLog = z.infer<typeof insertAgentLogSchema>;
 
 // Auth schemas
 export const loginSchema = z.object({
