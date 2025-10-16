@@ -41,6 +41,7 @@ async function runTests() {
   let ownerToken = '';
   let otherOwnerToken = '';
   let ownerId: string;
+  let owner2Id: string;
   let owner1ClientId: string;
   let owner2ClientId: string;
 
@@ -83,6 +84,7 @@ async function runTests() {
 
   if (owner2Login.headers['set-cookie']) {
     otherOwnerToken = owner2Login.headers['set-cookie'][0];
+    owner2Id = owner2Login.body.id;
   }
 
   // Create test clients
@@ -273,7 +275,7 @@ async function runTests() {
     const application = await request(app)
       .post('/api/staff-applications')
       .send({
-        ownerId: owner2.id,
+        ownerId: owner2Id,
         firstName: 'Jane',
         lastName: 'Smith',
         email: `jane_${Date.now()}@test.com`,
@@ -295,7 +297,7 @@ async function runTests() {
     const application = await request(app)
       .post('/api/staff-applications')
       .send({
-        ownerId: owner2.id,
+        ownerId: owner2Id,
         firstName: 'Bob',
         lastName: 'Johnson',
         email: `bob_${Date.now()}@test.com`,
