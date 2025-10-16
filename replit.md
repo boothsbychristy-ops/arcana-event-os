@@ -217,3 +217,50 @@ Preferred communication style: Simple, everyday language.
 - Bookings filtered via startTime field (not eventDate which doesn't exist).
 - Staff metrics joined with users table for proper name display and owner filtering.
 - Date presets automatically adjust interval selection for optimal chart display.
+
+## Security Hardening (October 2025)
+
+**Critical Security Fixes Applied:**
+
+1. **JWT Authentication Hardening**
+   - Removed insecure fallback JWT secret
+   - Server now fails fast with clear error if JWT_SECRET not set
+   - Requires secure random 32-byte secret in environment variables
+
+2. **Privilege Escalation Prevention**
+   - Fixed signup vulnerability where users could self-assign admin/owner roles
+   - All signups now force 'client' role
+   - Added protected `/api/users/:id/role` endpoint (requires admin/owner access)
+
+3. **Rate Limiting & DDoS Protection**
+   - Installed express-rate-limit middleware
+   - Auth endpoints limited to 20 attempts per 10 minutes per IP
+   - Prevents brute-force attacks on login
+
+4. **Security Headers**
+   - Added Helmet middleware for HTTP security headers
+   - Protection against common web vulnerabilities (XSS, clickjacking, etc.)
+
+5. **PII Data Protection**
+   - Replaced verbose response body logging with safe metadata logging
+   - Logs now only capture: method, path, status code, duration
+   - No sensitive data (emails, addresses, passwords) in logs
+
+6. **Database Performance Indexes**
+   - Added indexes for analytics queries: bookings(created_at, start_time)
+   - Task indexes: tasks(created_at, updated_at)
+   - Invoice indexes: invoices(created_at)
+   - Multi-tenant index: boards(owner_id)
+
+**Known Security Issues (Documented in SECURITY_AUDIT.md):**
+
+⚠️ **CRITICAL: Multi-Tenant Data Leakage**
+- Most tables lack `ownerId` column (clients, staff, proposals, bookings, invoices, payments)
+- Data currently shared across all tenants - requires schema migration to fix
+- Documented in SECURITY_AUDIT.md with full remediation plan
+- **DO NOT DEPLOY TO PRODUCTION** until multi-tenant isolation is implemented
+
+**Security Packages Added:**
+- helmet (HTTP security headers)
+- express-rate-limit (rate limiting)
+- cookie-parser (for future cookie-based auth)
