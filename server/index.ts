@@ -5,6 +5,7 @@ import cron from "node-cron";
 import { runScheduledAutomations } from "./agents/scheduler";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import cors from "cors";
 import { uploadsStatic } from "./uploads";
 import assetRoutes from "./routes.assets";
 import { authMiddleware } from "./auth";
@@ -14,9 +15,27 @@ const app = express();
 // Trust proxy - Replit runs behind a proxy
 app.set('trust proxy', 1);
 
-// Security: HTTP headers protection
+// Security: HTTP headers protection with CSP
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable for now, configure later for your specific needs
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: process.env.NODE_ENV === "production" ? {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:", "blob:", process.env.PUBLIC_ASSET_ORIGIN ?? "'self'"],
+      "media-src": ["'self'", "blob:"],
+      "connect-src": ["'self'"],
+      "script-src": ["'self'"],
+      "style-src": ["'self'", "'unsafe-inline'"],
+      "font-src": ["'self'", "data:"],
+    },
+  } : false
+}));
+
+// Security: CORS configuration
+app.use(cors({
+  origin: process.env.CLIENT_ORIGIN ?? true,
+  credentials: true,
 }));
 
 // Security: Rate limiting on authentication endpoints
@@ -29,6 +48,18 @@ const authLimiter = rateLimit({
 });
 
 app.use("/api/auth/", authLimiter);
+
+// Security: Rate limiting for write operations across API
+const writeLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60, // 60 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS",
+  message: "Too many requests, please try again later"
+});
+
+app.use(["/api", "/uploads"], writeLimiter);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
