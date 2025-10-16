@@ -91,6 +91,7 @@ export const bookings = pgTable("bookings", {
 // Staff assignments to bookings
 export const bookingStaff = pgTable("booking_staff", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   bookingId: varchar("booking_id").references(() => bookings.id).notNull(),
   staffId: varchar("staff_id").references(() => staff.id).notNull(),
   role: text("role"), // photographer, dj, assistant, etc.
@@ -191,6 +192,7 @@ export const bookingEngineSettings = pgTable("booking_engine_settings", {
 // Extra booking questions
 export const bookingQuestions = pgTable("booking_questions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   question: text("question").notNull(),
   fieldType: text("field_type").notNull(), // text, textarea, select, radio, checkbox
   options: text("options").array(), // for select/radio/checkbox
@@ -212,6 +214,7 @@ export const bookingResponses = pgTable("booking_responses", {
 // Unavailable date notices
 export const unavailableNotices = pgTable("unavailable_notices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   title: text("title").notNull(),
   message: text("message").notNull(),
   startDate: timestamp("start_date").notNull(),
