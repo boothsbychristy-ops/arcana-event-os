@@ -212,11 +212,11 @@ export interface IStorage {
   
   // Staff Applications
   getAllStaffApplications(ownerId: string): Promise<StaffApplication[]>;
-  getStaffApplication(id: string): Promise<StaffApplication | undefined>;
+  getStaffApplication(id: string, ownerId: string): Promise<StaffApplication | undefined>;
   createStaffApplication(application: InsertStaffApplication): Promise<StaffApplication>;
   updateStaffApplication(id: string, status: string): Promise<StaffApplication | undefined>;
-  approveStaffApplication(id: string): Promise<{ application: StaffApplication; staff: Staff; user: User; temporaryPassword: string }>;
-  rejectStaffApplication(id: string): Promise<StaffApplication | undefined>;
+  approveStaffApplication(id: string, ownerId: string): Promise<{ application: StaffApplication; staff: Staff; user: User; temporaryPassword: string }>;
+  rejectStaffApplication(id: string, ownerId: string): Promise<StaffApplication | undefined>;
   
   // Automations
   getAllAutomations(ownerId: string): Promise<Automation[]>;
@@ -1041,8 +1041,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(schema.staffApplications.createdAt));
   }
 
-  async getStaffApplication(id: string): Promise<StaffApplication | undefined> {
-    const [application] = await db.select().from(schema.staffApplications).where(eq(schema.staffApplications.id, id));
+  async getStaffApplication(id: string, ownerId: string): Promise<StaffApplication | undefined> {
+    const [application] = await db.select().from(schema.staffApplications)
+      .where(and(eq(schema.staffApplications.id, id), eq(schema.staffApplications.ownerId, ownerId)));
     return application;
   }
 
@@ -1056,8 +1057,8 @@ export class DatabaseStorage implements IStorage {
     return application;
   }
 
-  async approveStaffApplication(id: string): Promise<{ application: StaffApplication; staff: Staff; user: User; temporaryPassword: string }> {
-    const application = await this.getStaffApplication(id);
+  async approveStaffApplication(id: string, ownerId: string): Promise<{ application: StaffApplication; staff: Staff; user: User; temporaryPassword: string }> {
+    const application = await this.getStaffApplication(id, ownerId);
     if (!application) throw new Error("Staff application not found");
 
     // Generate secure random temporary password (16 characters)
@@ -1091,7 +1092,10 @@ export class DatabaseStorage implements IStorage {
     return { application: updatedApplication, staff, user, temporaryPassword };
   }
 
-  async rejectStaffApplication(id: string): Promise<StaffApplication | undefined> {
+  async rejectStaffApplication(id: string, ownerId: string): Promise<StaffApplication | undefined> {
+    // Verify ownership before rejecting
+    const application = await this.getStaffApplication(id, ownerId);
+    if (!application) return undefined;
     return this.updateStaffApplication(id, "rejected");
   }
 

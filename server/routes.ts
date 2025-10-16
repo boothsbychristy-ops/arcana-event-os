@@ -1575,7 +1575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/staff-applications/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const application = await storage.getStaffApplication(req.params.id);
+      const application = await storage.getStaffApplication(req.params.id, req.user!.id);
       if (!application) {
         return res.status(404).json({ error: "Staff application not found" });
       }
@@ -1587,7 +1587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/staff-applications/:id/approve", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const result = await storage.approveStaffApplication(req.params.id);
+      const result = await storage.approveStaffApplication(req.params.id, req.user!.id);
       res.json(result);
     } catch (error) {
       if (error instanceof Error) {
@@ -1599,7 +1599,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/staff-applications/:id/reject", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const application = await storage.rejectStaffApplication(req.params.id);
+      const application = await storage.rejectStaffApplication(req.params.id, req.user!.id);
       if (!application) {
         return res.status(404).json({ error: "Staff application not found" });
       }
