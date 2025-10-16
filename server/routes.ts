@@ -291,9 +291,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/clients/:id", async (req, res) => {
+  app.get("/api/clients/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const client = await storage.getClient(req.params.id);
+      const client = await storage.getClient(req.params.id, req.user!.id);
       if (!client) {
         return res.status(404).json({ error: "Client not found" });
       }
@@ -319,10 +319,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/clients/:id", async (req, res) => {
+  app.patch("/api/clients/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const data = insertClientSchema.partial().parse(req.body);
-      const client = await storage.updateClient(req.params.id, data);
+      const client = await storage.updateClient(req.params.id, req.user!.id, data);
       if (!client) {
         return res.status(404).json({ error: "Client not found" });
       }
@@ -335,9 +335,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/clients/:id", async (req, res) => {
+  app.delete("/api/clients/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      await storage.deleteClient(req.params.id);
+      await storage.deleteClient(req.params.id, req.user!.id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete client" });
@@ -354,9 +354,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/staff/:id", async (req, res) => {
+  app.get("/api/staff/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const staff = await storage.getStaff(req.params.id);
+      const staff = await storage.getStaff(req.params.id, req.user!.id);
       if (!staff) {
         return res.status(404).json({ error: "Staff not found" });
       }
@@ -390,10 +390,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/staff/:id", async (req, res) => {
+  app.patch("/api/staff/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const data = insertStaffSchema.partial().parse(req.body);
-      const staff = await storage.updateStaff(req.params.id, data);
+      const staff = await storage.updateStaff(req.params.id, req.user!.id, data);
       if (!staff) {
         return res.status(404).json({ error: "Staff not found" });
       }
@@ -416,9 +416,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/proposals/:id", async (req, res) => {
+  app.get("/api/proposals/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const proposal = await storage.getProposal(req.params.id);
+      const proposal = await storage.getProposal(req.params.id, req.user!.id);
       if (!proposal) {
         return res.status(404).json({ error: "Proposal not found" });
       }
@@ -441,10 +441,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/proposals/:id", async (req, res) => {
+  app.patch("/api/proposals/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const data = insertProposalSchema.partial().parse(req.body);
-      const proposal = await storage.updateProposal(req.params.id, data);
+      const proposal = await storage.updateProposal(req.params.id, req.user!.id, data);
       if (!proposal) {
         return res.status(404).json({ error: "Proposal not found" });
       }
@@ -457,9 +457,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/proposals/:id/convert-to-booking", async (req, res) => {
+  app.post("/api/proposals/:id/convert-to-booking", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const booking = await storage.convertProposalToBooking(req.params.id);
+      const booking = await storage.convertProposalToBooking(req.params.id, req.user!.id);
       res.json(booking);
     } catch (error) {
       if (error instanceof Error) {
@@ -479,9 +479,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/bookings/:id", async (req, res) => {
+  app.get("/api/bookings/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const booking = await storage.getBooking(req.params.id);
+      const booking = await storage.getBooking(req.params.id, req.user!.id);
       if (!booking) {
         return res.status(404).json({ error: "Booking not found" });
       }
@@ -504,10 +504,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/bookings/:id", async (req, res) => {
+  app.patch("/api/bookings/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const data = insertBookingSchema.partial().parse(req.body);
-      const booking = await storage.updateBooking(req.params.id, data);
+      const booking = await storage.updateBooking(req.params.id, req.user!.id, data);
       if (!booking) {
         return res.status(404).json({ error: "Booking not found" });
       }
@@ -573,9 +573,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices/:id", authMiddleware, async (req, res) => {
+  app.get("/api/invoices/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const invoice = await storage.getInvoice(req.params.id);
+      const invoice = await storage.getInvoice(req.params.id, req.user!.id);
       if (!invoice) {
         return res.status(404).json({ error: "Invoice not found" });
       }
@@ -608,7 +608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate invoice from booking
-  app.post("/api/bookings/:id/generate-invoice", authMiddleware, async (req, res) => {
+  app.post("/api/bookings/:id/generate-invoice", authMiddleware, async (req: AuthRequest, res) => {
     try {
       // Check if invoice already exists for this booking
       const existing = await storage.getInvoiceByBooking(req.params.id);
@@ -617,7 +617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get booking details
-      const booking = await storage.getBooking(req.params.id);
+      const booking = await storage.getBooking(req.params.id, req.user!.id);
       if (!booking) {
         return res.status(404).json({ error: "Booking not found" });
       }
@@ -646,10 +646,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/invoices/:id", authMiddleware, async (req, res) => {
+  app.patch("/api/invoices/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const data = insertInvoiceSchema.partial().parse(req.body);
-      const invoice = await storage.updateInvoice(req.params.id, data);
+      const invoice = await storage.updateInvoice(req.params.id, req.user!.id, data);
       if (!invoice) {
         return res.status(404).json({ error: "Invoice not found" });
       }
@@ -904,7 +904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/boards/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const boardData = await storage.getBoardWithDetails(req.params.id);
+      const boardData = await storage.getBoardWithDetails(req.params.id, req.user!.id);
       if (!boardData) {
         return res.status(404).json({ error: "Board not found" });
       }
@@ -930,7 +930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/boards/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const data = insertBoardSchema.partial().parse(req.body);
-      const board = await storage.updateBoard(req.params.id, data);
+      const board = await storage.updateBoard(req.params.id, req.user!.id, data);
       if (!board) {
         return res.status(404).json({ error: "Board not found" });
       }
@@ -945,7 +945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/boards/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const success = await storage.deleteBoard(req.params.id);
+      const success = await storage.deleteBoard(req.params.id, req.user!.id);
       if (!success) {
         return res.status(404).json({ error: "Board not found" });
       }
