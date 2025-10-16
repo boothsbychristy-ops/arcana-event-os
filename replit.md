@@ -58,6 +58,8 @@ Preferred communication style: Simple, everyday language.
 
 **AI Design Agent:** Integrates with Leonardo API for AI-generated overlays and backdrops. Auto-triggers on client feedback requests, using approval title and description as theme hints. Operations are logged to an `agentLogs` table.
 
+**Asset Persistence & Uploads (Phase 11.5):** File upload system using multer with 10MB limit for images and PDFs. Assets stored in `approvals.assetsJson` JSONB field with structure `{ items: [{ url, type, label, addedAt }] }`. AssetGrid component displays saved assets in responsive grid. Public client upload endpoint via share tokens. Files served from `/uploads` directory. BackgroundPicker integrated with asset storage for AI-generated backgrounds.
+
 **Theme System:** Global `ThemeContext` for light, dark, and system modes, persisted in `localStorage`. Applies corresponding classes to the HTML root. UI adapts automatically through CSS variables.
 
 ## External Dependencies
@@ -98,6 +100,10 @@ Preferred communication style: Simple, everyday language.
 
 ### Automation & Scheduling
 - **node-cron**: Task scheduler.
+
+### File Uploads
+- **multer**: Multipart form data handling for file uploads.
+- **@types/multer**: TypeScript definitions for multer.
 
 ### UI Utilities
 - **cmdk**: Command palette.
