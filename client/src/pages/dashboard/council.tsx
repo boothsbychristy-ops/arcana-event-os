@@ -17,6 +17,7 @@ import {
 import { format } from "date-fns";
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
+import { Clock, TrendingUp, RefreshCw, Eye } from "lucide-react";
 
 export default function Council() {
   const queryClient = useQueryClient();
@@ -52,6 +53,12 @@ export default function Council() {
       return res.json();
     }
   });
+
+  // Calculate KPI values
+  const ttfv = kpis?.avgTtfv ? `${(kpis.avgTtfv / 1000).toFixed(1)}s` : "N/A";
+  const approvalMedian = kpis?.medianApprovalTime ? `${(kpis.medianApprovalTime / 3600).toFixed(1)}h` : "N/A";
+  const reworkRate = kpis?.reworkRate ? `${(kpis.reworkRate * 100).toFixed(1)}%` : "N/A";
+  const shareToView = kpis?.shareToViewRate ? `${(kpis.shareToViewRate * 100).toFixed(1)}%` : "N/A";
 
   const promoteMutation = useMutation({
     mutationFn: async ({ id, role }: { id: string; role: "admin" | "user" }) => {
@@ -195,6 +202,48 @@ export default function Council() {
           <p className="text-sm text-gray-400 mb-2">Uploads (30d)</p>
           <p className="text-3xl font-bold text-blue-400">{totals?.uploads_30d || 0}</p>
         </GlassCard>
+      </div>
+
+      {/* UX KPIs */}
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold text-white mb-4">UX Performance (Last 30 Days)</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <GlassCard variant="gradient" className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Clock className="h-4 w-4 text-blue-500" />
+              <p className="text-sm text-muted-foreground">TTFV</p>
+            </div>
+            <p className="text-2xl font-bold text-white">{ttfv}</p>
+            <p className="text-xs text-gray-400 mt-1">Time to First View</p>
+          </GlassCard>
+          
+          <GlassCard variant="gradient" className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="h-4 w-4 text-green-500" />
+              <p className="text-sm text-muted-foreground">Approval Time</p>
+            </div>
+            <p className="text-2xl font-bold text-white">{approvalMedian}</p>
+            <p className="text-xs text-gray-400 mt-1">Median (hours)</p>
+          </GlassCard>
+          
+          <GlassCard variant="gradient" className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <RefreshCw className="h-4 w-4 text-orange-500" />
+              <p className="text-sm text-muted-foreground">Rework Rate</p>
+            </div>
+            <p className="text-2xl font-bold text-white">{reworkRate}</p>
+            <p className="text-xs text-gray-400 mt-1">Changes requested</p>
+          </GlassCard>
+          
+          <GlassCard variant="gradient" className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Eye className="h-4 w-4 text-purple-500" />
+              <p className="text-sm text-muted-foreground">Share→View</p>
+            </div>
+            <p className="text-2xl font-bold text-white">{shareToView}</p>
+            <p className="text-xs text-gray-400 mt-1">Conversion rate</p>
+          </GlassCard>
+        </div>
       </div>
 
       {/* Charts */}
