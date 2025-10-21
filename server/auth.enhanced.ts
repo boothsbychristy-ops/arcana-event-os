@@ -38,16 +38,14 @@ export async function comparePassword(
 
 // Sign token with current (primary) secret
 function signToken(userId: string, email?: string, role?: string): string {
-  const payload = { 
-    sub: userId, 
-    email, 
-    role,
-    iss: env.JWT_ISS, 
-    aud: env.JWT_AUD 
-  };
-  
   return jwt.sign(
-    payload,
+    { 
+      sub: userId, 
+      email, 
+      role,
+      iss: env.JWT_ISS, 
+      aud: env.JWT_AUD 
+    } as JwtPayload,
     JWT_SECRETS[0], // Always use the primary secret for signing
     { expiresIn: env.JWT_EXPIRES }
   );
