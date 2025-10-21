@@ -219,7 +219,8 @@ export default function DynamicBoards() {
 
   const createBoardMutation = useMutation({
     mutationFn: async (data: InsertDynamicBoard) => {
-      return apiRequest("POST", "/api/boards/dynamic", data);
+      const res = await apiRequest("POST", "/api/boards/dynamic", data);
+      return await res.json() as DynamicBoard;
     },
     onSuccess: (newBoard: DynamicBoard) => {
       queryClient.invalidateQueries({ queryKey: ["/api/boards/dynamic"] });
@@ -235,13 +236,14 @@ export default function DynamicBoards() {
 
   const createFieldMutation = useMutation({
     mutationFn: async (data: InsertDynamicField) => {
-      return apiRequest("POST", `/api/boards/dynamic/${selectedBoardId}/fields`, {
+      const res = await apiRequest("POST", `/api/boards/dynamic/${selectedBoardId}/fields`, {
         ...data,
         sortIndex: fields.length,
         config: data.type === "status" || data.type === "dropdown" 
           ? { options: fieldOptions }
           : {}
       });
+      return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/boards/dynamic", selectedBoardId, "fields"] });
@@ -267,7 +269,8 @@ export default function DynamicBoards() {
 
   const createItemMutation = useMutation({
     mutationFn: async (boardId: string) => {
-      return apiRequest("POST", `/api/boards/dynamic/${boardId}/items`, { name: "New Item" });
+      const res = await apiRequest("POST", `/api/boards/dynamic/${boardId}/items`, { name: "New Item" });
+      return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/boards/dynamic", selectedBoardId, "items"] });
@@ -276,7 +279,8 @@ export default function DynamicBoards() {
 
   const updateFieldValueMutation = useMutation({
     mutationFn: async ({ itemId, fieldId, value }: { itemId: string; fieldId: string; value: string }) => {
-      return apiRequest("POST", `/api/items/${itemId}/values`, { fieldId, value });
+      const res = await apiRequest("POST", `/api/items/${itemId}/values`, { fieldId, value });
+      return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/boards/dynamic", selectedBoardId, "items"] });
@@ -285,7 +289,8 @@ export default function DynamicBoards() {
 
   const reorderFieldsMutation = useMutation({
     mutationFn: async (fieldOrders: { id: string; sortIndex: number }[]) => {
-      return apiRequest("POST", `/api/boards/dynamic/${selectedBoardId}/fields/reorder`, fieldOrders);
+      const res = await apiRequest("POST", `/api/boards/dynamic/${selectedBoardId}/fields/reorder`, fieldOrders);
+      return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/boards/dynamic", selectedBoardId, "fields"] });
