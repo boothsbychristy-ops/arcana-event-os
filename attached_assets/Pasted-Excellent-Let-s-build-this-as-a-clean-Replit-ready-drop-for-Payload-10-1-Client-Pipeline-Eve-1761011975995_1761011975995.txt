@@ -1,0 +1,217 @@
+Excellent. Let’s build this as a clean, Replit-ready drop for **Payload 10.1 — Client Pipeline & Event Linker**.
+The goal of this payload is to give Rainbow CRM a *working backend and UI loop* for clients, events, and projects—everything else in later payloads will hang off of this.
+
+---
+
+## 🧩 Payload 10.1 — Client Pipeline & Event Linker
+
+### 1️⃣ Supabase Schema Migration (SQL)
+
+```sql
+-- CLIENTS
+create table if not exists clients (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references auth.users(id) on delete cascade,
+  name text not null,
+  email text,
+  phone text,
+  company text,
+  notes text,
+  status text default 'lead',             -- lead | booked | completed | archived
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- EVENTS
+create table if not exists events (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid references clients(id) on delete cascade,
+  title text not null,
+  event_date date,
+  location text,
+  budget numeric(10,2),
+  notes text,
+  stage text default 'planning',          -- planning | design | production | delivery
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- PROJECTS (design / asset work linked to an event)
+create table if not exists projects (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid references events(id) on delete cascade,
+  name text not null,
+  type text,                              -- overlay | backdrop | ai_prompt | video
+  status text default 'in_progress',      -- in_progress | waiting_approval | approved
+  due_date date,
+  assignee uuid references auth.users(id),
+  mirror_meta jsonb default '{}'::jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+```
+
+> 🔒 Each `owner_id` ensures data isolation per logged-in user (tenant).
+> Add a Supabase RLS policy: `auth.uid() = owner_id` for `select`, `insert`, `update`, `delete`.
+
+---
+
+### 2️⃣ TypeScript Types (/types/schema.ts)
+
+```ts
+export interface Client {
+  id: string;
+  owner_id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  notes?: string;
+  status: 'lead' | 'booked' | 'completed' | 'archived';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Event {
+  id: string;
+  client_id: string;
+  title: string;
+  event_date?: string;
+  location?: string;
+  budget?: number;
+  notes?: string;
+  stage: 'planning' | 'design' | 'production' | 'delivery';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project {
+  id: string;
+  event_id: string;
+  name: string;
+  type?: string;
+  status: 'in_progress' | 'waiting_approval' | 'approved';
+  due_date?: string;
+  assignee?: string;
+  mirror_meta?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+---
+
+### 3️⃣ Express Routes (/routes/clients.ts, /events.ts, /projects.ts)
+
+Example for `clients.ts`:
+
+```ts
+import express from 'express';
+import { supabase } from '../services/supabase.js';
+import { requireAuth } from '../middleware/auth.js';
+
+const router = express.Router();
+router.use(requireAuth);
+
+// CREATE CLIENT
+router.post('/', async (req, res) => {
+  const { data, error } = await supabase
+    .from('clients')
+    .insert([{ ...req.body, owner_id: req.user.id }])
+    .select();
+  if (error) return res.status(400).json({ error });
+  res.json(data[0]);
+});
+
+// READ ALL CLIENTS (with linked events)
+router.get('/', async (req, res) => {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*, events(*)')
+    .eq('owner_id', req.user.id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(400).json({ error });
+  res.json(data);
+});
+
+// UPDATE
+router.patch('/:id', async (req, res) => {
+  const { data, error } = await supabase
+    .from('clients')
+    .update(req.body)
+    .eq('id', req.params.id)
+    .eq('owner_id', req.user.id)
+    .select();
+  if (error) return res.status(400).json({ error });
+  res.json(data[0]);
+});
+
+// DELETE
+router.delete('/:id', async (req, res) => {
+  const { error } = await supabase
+    .from('clients')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('owner_id', req.user.id);
+  if (error) return res.status(400).json({ error });
+  res.json({ success: true });
+});
+
+export default router;
+```
+
+Duplicate this pattern for `/events` and `/projects`, adjusting foreign keys accordingly.
+
+---
+
+### 4️⃣ Front-End Scaffold (React)
+
+* **Page:** `/dashboard/pipeline`
+* **Components:**
+
+  * `ClientCard.tsx` → shows name, status, upcoming event count.
+  * `PipelineBoard.tsx` → Kanban columns (Lead / Booked / Completed / Archived).
+  * `EventDrawer.tsx` → slide-in details + linked projects.
+  * `AddClientModal.tsx` & `AddEventModal.tsx` → form wizards.
+
+Use TanStack Query for data fetching and Supabase JS for mutations.
+
+Example quick fetcher:
+
+```ts
+const { data: clients } = useQuery(['clients'], async () => {
+  const { data, error } = await supabase.from('clients').select('*, events(*)');
+  if (error) throw error;
+  return data;
+});
+```
+
+---
+
+### 5️⃣ Seed Data & Testing
+
+Add a `/scripts/seed.js` file:
+
+```js
+import { supabase } from '../services/supabase.js';
+const owner = process.env.TEST_OWNER_ID;
+await supabase.from('clients').insert([
+  { owner_id: owner, name: 'St. Jude Gala', status: 'booked' },
+  { owner_id: owner, name: 'Salesforce Dreamforce', status: 'lead' }
+]);
+console.log('✅ Seeded sample clients');
+```
+
+---
+
+### 6️⃣ Success Criteria
+
+✅ Can create/edit/delete clients, events, projects.
+✅ Events show under each client.
+✅ Projects link to events.
+✅ UI displays pipeline board.
+✅ Mirror meta field reserved for future licensing tags.
+
+---
+
+Would you like me to generate the **React component payload** next (Kanban Pipeline + Client Modal) so you can drop it straight into `/client/src/pages/dashboard/pipeline.tsx`?

@@ -1,0 +1,200 @@
+Excellent — staying in perfect rhythm.
+This next payload brings Rainbow CRM to life as a *semi-autonomous system*: it keeps track of pending approvals, sends polite nudges, syncs events to calendars, and summarizes activity for you with light AI.
+
+---
+
+## 🧩 Payload 10.4 — Smart Automations + Email Reminders
+
+### 1️⃣ Supabase Schema Migration
+
+```sql
+-- AUTOMATIONS LOG
+create table if not exists automations_log (
+  id uuid primary key default gen_random_uuid(),
+  event text not null,              -- e.g. proof_reminder, invoice_due
+  target_id uuid,                   -- proof_id or event_id
+  status text default 'queued',     -- queued | sent | failed
+  details jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+-- USER PREFERENCES
+create table if not exists user_prefs (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references auth.users(id) on delete cascade,
+  receive_emails boolean default true,
+  timezone text default 'UTC',
+  daily_digest boolean default true,
+  created_at timestamptz default now()
+);
+```
+
+These tables allow logging every automation run (auditable) and storing per-user notification settings.
+
+---
+
+### 2️⃣ Edge Function / Cron Job (Supabase Function `proof_reminder`)
+
+Runs daily via Supabase’s scheduled function trigger.
+
+```js
+// supabase/functions/proof_reminder/index.ts
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const supabase = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+const RESEND_KEY = Deno.env.get("RESEND_API_KEY"); // or SendGrid / Mailgun
+
+async function sendEmail(to: string, subject: string, html: string) {
+  await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: "Rainbow CRM <noreply@pbfx.ai>", to, subject, html }),
+  });
+}
+
+Deno.serve(async () => {
+  const { data: proofs } = await supabase
+    .from("proofs")
+    .select("id, title, status, created_at, projects!inner(events!inner(clients!inner(email,name)))")
+    .eq("status", "pending");
+
+  for (const proof of proofs || []) {
+    const ageDays =
+      (Date.now() - new Date(proof.created_at).getTime()) / (1000 * 60 * 60 * 24);
+    if (ageDays > 3) {
+      const clientEmail = proof.projects.events.clients.email;
+      const clientName = proof.projects.events.clients.name;
+      await sendEmail(
+        clientEmail,
+        `Reminder: please review your design proof "${proof.title}"`,
+        `<p>Hi ${clientName},</p>
+         <p>Your design proof <strong>${proof.title}</strong> is waiting for approval.</p>
+         <p><a href="${Deno.env.get("SITE_URL")}/proof/${proof.id}">View Proof</a></p>
+         <p>Thank you! — Rainbow CRM</p>`
+      );
+      await supabase.from("automations_log").insert([
+        { event: "proof_reminder", target_id: proof.id, status: "sent" },
+      ]);
+    }
+  }
+  return new Response("Reminders sent");
+});
+```
+
+> 🔁 Runs daily (24 h) via Supabase Scheduler.
+> Marks each reminder in `automations_log` for traceability.
+
+---
+
+### 3️⃣ Calendar Sync (Events → Google Calendar)
+
+A lightweight Express route to push event data for authenticated users.
+
+```ts
+// routes/calendar.ts
+import express from "express";
+import { google } from "googleapis";
+import { supabase } from "../services/supabase.js";
+import { requireAuth } from "../middleware/auth.js";
+
+const router = express.Router();
+
+router.post("/sync", requireAuth, async (req, res) => {
+  const { data: events } = await supabase
+    .from("events")
+    .select("*")
+    .eq("owner_id", req.user.id);
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GCAL_CLIENT_ID,
+    process.env.GCAL_CLIENT_SECRET,
+    process.env.GCAL_REDIRECT_URI
+  );
+  oauth2Client.setCredentials({ refresh_token: req.user.google_refresh_token });
+  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+  for (const e of events || []) {
+    await calendar.events.insert({
+      calendarId: "primary",
+      requestBody: {
+        summary: e.title,
+        start: { date: e.event_date },
+        end: { date: e.event_date },
+        description: e.notes || "",
+      },
+    });
+  }
+  res.json({ success: true });
+});
+
+export default router;
+```
+
+Users can click **“Sync to Calendar”** in the dashboard once, and all booked events appear in Google Calendar.
+
+---
+
+### 4️⃣ AI Digest (Supabase Edge Function `daily_digest`)
+
+Summarizes recent activity using Gemini 1.5 or OpenAI.
+
+```js
+// supabase/functions/daily_digest/index.ts
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const supabase = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
+const RESEND_KEY = Deno.env.get("RESEND_API_KEY");
+
+async function summarizeActivity(owner_id: string) {
+  const { data } = await supabase
+    .from("automations_log")
+    .select("event, created_at")
+    .eq("owner_id", owner_id)
+    .gte("created_at", new Date(Date.now() - 86400000).toISOString());
+  const events = data?.map((d) => `${d.event} at ${d.created_at}`).join("\n");
+  const prompt = `Summarize the following actions in 3 sentences for a daily digest:\n${events}`;
+  const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateText", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${GEMINI_KEY}` },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+  });
+  const json = await resp.json();
+  return json.candidates?.[0]?.content?.parts?.[0]?.text || "No summary.";
+}
+```
+
+Then email the digest to each user with `daily_digest = true`.
+
+---
+
+### 5️⃣ React Dashboard Integration
+
+Inside `dashboard/settings.tsx`:
+
+* **Email Toggles:** receive emails / daily digest.
+* **Last automation status:** pulled from `automations_log`.
+* **Manual Trigger Button:** “Send Reminder Now” → calls `/api/proofs/remind/:id`.
+
+---
+
+### 6️⃣ Success Criteria
+
+✅ Automated reminders for stale proofs.
+✅ Email dispatch with logging.
+✅ Google Calendar sync for booked events.
+✅ Daily AI digest summarizing activity.
+✅ User preferences for frequency & consent.
+
+---
+
+### 7️⃣ Next Payload Preview (10.5)
+
+→ **Neon Glass Dashboard Upgrade**
+We’ll layer in your signature Empress visual language:
+
+* Dark luxury theme tokens.
+* Framer Motion micro-animations.
+* Sidebar with glow effects and progress metrics.
+* Unify Rainbow CRM UI with Baby Empress OS aesthetics.
+
+Would you like me to generate **Payload 10.5 — Neon Glass Dashboard Upgrade** next?

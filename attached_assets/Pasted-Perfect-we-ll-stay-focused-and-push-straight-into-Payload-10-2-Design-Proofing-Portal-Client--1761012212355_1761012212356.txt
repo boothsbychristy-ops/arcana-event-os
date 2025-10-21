@@ -1,0 +1,248 @@
+Perfect — we’ll stay focused and push straight into **Payload 10.2 → Design Proofing Portal (Client-Facing MVP)**.
+This layer lets clients securely preview, approve, or request revisions on visual deliverables (overlays, backdrops, AI renders, etc.) inside Rainbow CRM. It sits at the intersection of your CRM and Empress OS, carrying Mirror Protocol metadata and building the trust loop that replaces email proofing.
+
+---
+
+## 🧩 Payload 10.2 — Design Proofing Portal (Client-Facing MVP)
+
+### 1️⃣ Supabase Schema Migration
+
+```sql
+-- PROOFS
+create table if not exists proofs (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid references projects(id) on delete cascade,
+  token uuid default gen_random_uuid(),  -- unique public access token
+  title text not null,
+  image_url text,                        -- Supabase or S3 asset
+  mirror_meta jsonb default '{}'::jsonb, -- license + sensitivity tags
+  status text default 'pending',         -- pending | approved | changes_requested
+  client_comment text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- COMMENTS (threaded discussion)
+create table if not exists proof_comments (
+  id uuid primary key default gen_random_uuid(),
+  proof_id uuid references proofs(id) on delete cascade,
+  author text,                           -- "Client" or "Admin"
+  message text not null,
+  created_at timestamptz default now()
+);
+```
+
+> 🔐  Add an RLS policy for internal users as usual,
+> but the client-facing route will use the `token` field for temporary public read/write access.
+
+---
+
+### 2️⃣ API Routes (/routes/proofs.ts)
+
+```ts
+import express from "express";
+import { supabase } from "../services/supabase.js";
+import { requireAuth } from "../middleware/auth.js";
+
+const router = express.Router();
+
+// internal creation (staff only)
+router.post("/", requireAuth, async (req, res) => {
+  const body = { ...req.body };
+  const { data, error } = await supabase.from("proofs").insert([body]).select();
+  if (error) return res.status(400).json({ error });
+  res.json(data[0]);
+});
+
+// public access (client link)
+router.get("/public/:token", async (req, res) => {
+  const { data, error } = await supabase
+    .from("proofs")
+    .select("*, proof_comments(*)")
+    .eq("token", req.params.token)
+    .single();
+  if (error || !data) return res.status(404).json({ error: "Not found" });
+  res.json(data);
+});
+
+router.post("/public/:token/comment", async (req, res) => {
+  const { message, author } = req.body;
+  const { data: proof } = await supabase
+    .from("proofs")
+    .select("id")
+    .eq("token", req.params.token)
+    .single();
+  if (!proof) return res.status(404).json({ error: "Not found" });
+  const { error } = await supabase
+    .from("proof_comments")
+    .insert([{ proof_id: proof.id, message, author }]);
+  if (error) return res.status(400).json({ error });
+  res.json({ success: true });
+});
+
+router.post("/public/:token/status", async (req, res) => {
+  const { status, comment } = req.body;
+  const { error } = await supabase
+    .from("proofs")
+    .update({ status, client_comment: comment })
+    .eq("token", req.params.token);
+  if (error) return res.status(400).json({ error });
+  res.json({ success: true });
+});
+
+export default router;
+```
+
+---
+
+### 3️⃣ React Client-Facing Page
+
+`client/src/pages/proof/[token].tsx`
+
+```tsx
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
+
+export default function ProofPortal() {
+  const { token } = useParams();
+  const [proof, setProof] = useState<any>(null);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("proofs")
+        .select("*, proof_comments(*)")
+        .eq("token", token)
+        .single();
+      setProof(data);
+    })();
+  }, [token]);
+
+  if (!proof)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-400">
+        Loading…
+      </div>
+    );
+
+  const sendAction = async (status: string) => {
+    await fetch(`/api/proofs/public/${token}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    alert("Response recorded. Thank you!");
+  };
+
+  const sendComment = async () => {
+    if (!message) return;
+    await fetch(`/api/proofs/public/${token}/comment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, author: "Client" }),
+    });
+    setMessage("");
+    const { data } = await supabase
+      .from("proofs")
+      .select("*, proof_comments(*)")
+      .eq("token", token)
+      .single();
+    setProof(data);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0b0b0d] text-white p-6">
+      <div className="max-w-2xl mx-auto">
+        <img
+          src={proof.image_url}
+          alt={proof.title}
+          className="rounded-2xl mb-4 border border-white/10"
+        />
+        <h1 className="text-xl font-semibold mb-1">{proof.title}</h1>
+        <p className="text-sm text-gray-400 mb-6">
+          Status: {proof.status.toUpperCase()}
+        </p>
+
+        <div className="flex gap-3 mb-6">
+          <button
+            onClick={() => sendAction("approved")}
+            className="flex-1 bg-green-600 hover:bg-green-700 py-2 rounded-xl"
+          >
+            Approve
+          </button>
+          <button
+            onClick={() => sendAction("changes_requested")}
+            className="flex-1 bg-yellow-600 hover:bg-yellow-700 py-2 rounded-xl"
+          >
+            Request Changes
+          </button>
+        </div>
+
+        <textarea
+          className="w-full bg-white/10 rounded-xl p-3 outline-none mb-3"
+          rows={3}
+          placeholder="Add a comment..."
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+        <button
+          onClick={sendComment}
+          className="w-full bg-pink-600 hover:bg-pink-700 py-2 rounded-xl"
+        >
+          Post Comment
+        </button>
+
+        <div className="mt-8">
+          <h2 className="text-sm text-gray-400 mb-2 uppercase">Comments</h2>
+          <div className="space-y-2">
+            {proof.proof_comments?.map((c: any) => (
+              <div key={c.id} className="bg-white/5 p-2 rounded-lg">
+                <p className="text-xs text-gray-300">{c.message}</p>
+                <span className="text-[10px] text-gray-500">{c.author}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+### 4️⃣ Staff View Enhancement (in Rainbow CRM Dashboard)
+
+Inside `/dashboard/pipeline` or `/dashboard/projects`:
+
+* Add a column **“Proof Link”** with a **Copy URL** button → `${siteUrl}/proof/${token}`.
+* Optional: small indicator badge (🟢 Approved / 🟡 Pending / 🔴 Changes).
+* Mirror Meta field displayed as tooltip (license + safety tags).
+
+---
+
+### 5️⃣ Success Criteria
+
+✅ Clients open unique secure links.
+✅ They see image, approve, or request changes.
+✅ They can comment in a live thread.
+✅ Status updates reflect instantly in the dashboard.
+✅ Mirror Protocol JSON stored alongside each proof.
+
+---
+
+### 6️⃣ Next Payload Preview (10.3)
+
+→ **Asset Library + File Uploader**
+Will include:
+
+* Multi-file upload to Supabase storage.
+* Thumbnails + tagging.
+* Folder grouping by project.
+* “Generate Mockup” button linking to Baby Empress engine.
+
+---
+
+Would you like me to generate **Payload 10.3 — Asset Library & File Uploader** next (Supabase storage schema + React UI)?

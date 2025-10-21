@@ -1,0 +1,196 @@
+Perfect. Let’s shift into **Payload 10.5 → Neon Glass Dashboard Upgrade**, the visual and UX polish phase that aligns Rainbow CRM’s interface with the signature *Empress OS luxury dark aesthetic*—black glass, soft glow, pink-gold highlights, and motion that feels alive rather than busy.
+This payload is mostly front-end, but it adds reusable style tokens and component wrappers that everything else (proofing, assets, pipeline) will inherit.
+
+---
+
+## 🧩 Payload 10.5 — Neon Glass Dashboard Upgrade
+
+### 1️⃣ Design Tokens (tailwind.config.cjs)
+
+Add or merge these values into your Tailwind theme section:
+
+```js
+theme: {
+  extend: {
+    colors: {
+      empress: {
+        pink: "#ff6fae",
+        gold: "#ffd580",
+        dark: "#0b0b0d",
+        surface: "#131315",
+      },
+    },
+    boxShadow: {
+      neon: "0 0 12px rgba(255,111,174,0.35)",
+      gold: "0 0 14px rgba(255,213,128,0.25)",
+    },
+    backdropBlur: { xs: "2px" },
+    animation: {
+      fadeIn: "fadeIn 0.4s ease-in",
+      float: "float 6s ease-in-out infinite",
+    },
+    keyframes: {
+      fadeIn: { "0%": { opacity: 0 }, "100%": { opacity: 1 } },
+      float: {
+        "0%,100%": { transform: "translateY(0)" },
+        "50%": { transform: "translateY(-3px)" },
+      },
+    },
+  },
+},
+```
+
+---
+
+### 2️⃣ Global Layout Wrapper (`/components/Layout.tsx`)
+
+```tsx
+import { motion } from "framer-motion";
+import { NavLink, Outlet } from "react-router-dom";
+import { ChartPie, Image, Users, Settings } from "lucide-react";
+
+export default function Layout() {
+  const menu = [
+    { to: "/dashboard/pipeline", label: "Pipeline", icon: <Users size={18}/> },
+    { to: "/dashboard/assets", label: "Assets", icon: <Image size={18}/> },
+    { to: "/dashboard/analytics", label: "Analytics", icon: <ChartPie size={18}/> },
+    { to: "/dashboard/settings", label: "Settings", icon: <Settings size={18}/> },
+  ];
+
+  return (
+    <div className="flex min-h-screen bg-empress-dark text-white">
+      <aside className="w-60 bg-white/5 backdrop-blur-md border-r border-white/10 p-4 flex flex-col">
+        <h1 className="text-xl font-semibold mb-6 text-empress-pink tracking-wide">Rainbow CRM</h1>
+        <nav className="space-y-1 flex-1">
+          {menu.map((m) => (
+            <NavLink
+              key={m.to}
+              to={m.to}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
+                  isActive
+                    ? "bg-empress-pink/20 shadow-neon"
+                    : "hover:bg-white/10 text-gray-300"
+                }`
+              }
+            >
+              {m.icon}
+              <span className="text-sm">{m.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+        <p className="text-[10px] text-gray-500 mt-auto">© Empress OS 2025</p>
+      </aside>
+
+      <motion.main
+        className="flex-1 p-8 overflow-y-auto bg-gradient-to-br from-empress-dark via-[#111112] to-black"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4 }}
+      >
+        <Outlet />
+      </motion.main>
+    </div>
+  );
+}
+```
+
+> 💡 Framer Motion gives every route a soft fade; the sidebar glows subtly when active.
+
+---
+
+### 3️⃣ Reusable Glass Card Component
+
+```tsx
+export function GlassCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-4 shadow-neon animate-fadeIn">
+      {children}
+    </div>
+  );
+}
+```
+
+Replace repeated container divs (`bg-white/5 p-4`) in existing pages with `<GlassCard>`.
+
+---
+
+### 4️⃣ Buttons / Inputs Tokenization (`/components/ui/Button.tsx`)
+
+```tsx
+export function Button({ children, onClick, variant = "primary" }) {
+  const styles =
+    variant === "primary"
+      ? "bg-empress-pink hover:bg-empress-pink/80 shadow-neon"
+      : "bg-empress-gold text-black hover:bg-empress-gold/80 shadow-gold";
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${styles}`}
+    >
+      {children}
+    </button>
+  );
+}
+```
+
+---
+
+### 5️⃣ Micro-Motion Examples
+
+```tsx
+<motion.div
+  whileHover={{ scale: 1.02, boxShadow: "0 0 15px rgba(255,111,174,0.3)" }}
+  whileTap={{ scale: 0.98 }}
+  className="rounded-xl bg-white/10 p-3 cursor-pointer"
+>
+  Hover Me
+</motion.div>
+```
+
+Use these touches on cards and gallery items for tactile feedback.
+
+---
+
+### 6️⃣ Analytics Header Bar (UI Preview)
+
+```tsx
+export function HeaderStats({ stats }) {
+  return (
+    <div className="grid grid-cols-4 gap-4 mb-6">
+      {stats.map((s) => (
+        <GlassCard key={s.label}>
+          <p className="text-xs text-gray-400">{s.label}</p>
+          <p className="text-xl font-semibold text-empress-gold">{s.value}</p>
+        </GlassCard>
+      ))}
+    </div>
+  );
+}
+```
+
+Feed with metrics from Supabase (proof approvals, events booked, etc.).
+
+---
+
+### 7️⃣ Success Criteria
+
+✅ Unified Empress-style dark mode throughout app.
+✅ Reusable Neon Glass cards, buttons, and sidebar.
+✅ Framer Motion transitions active.
+✅ Brand palette consistent with Baby Empress Studio.
+✅ Scalable for theme overrides later (Mirror Pink → Gold Glow variant).
+
+---
+
+### 8️⃣ Next Payload Preview (10.6)
+
+→ **Analytics + Reporting Layer**
+Will include:
+
+* Supabase `analytics` table & event logger.
+* Recharts visuals (approvals, pipeline conversion).
+* CSV/PDF export tool.
+* “AI Insights” summary card using Gemini Flash.
+
+Would you like me to proceed with **Payload 10.6 — Analytics + Reporting Layer** next?

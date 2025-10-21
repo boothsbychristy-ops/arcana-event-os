@@ -1,0 +1,339 @@
+Locked and loading. Here’s the **Integration Bridge → Empress OS** drop, wired for your job queue and Mirror stack.
+
+# 🧩 Payload 10.7 — Integration Bridge → Empress OS
+
+This payload lets Rainbow CRM:
+
+1. send “Generate Mockup” jobs to Baby Empress OS,
+2. run **Reverse Vision** (16-part prompt analysis) on any asset,
+3. keep users unified, and
+4. stub Mirror Coins accounting.
+
+---
+
+## 1) Shared User Unification
+
+### Supabase: extend `profiles` (if you already have it, just `alter table`)
+
+```sql
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text unique,
+  display_name text,
+  empress_role text default 'user', -- user | admin
+  created_at timestamptz default now()
+);
+
+-- convenience view to keep both apps aligned
+create view v_users as
+select id, email, display_name, empress_role, created_at from profiles;
+```
+
+### RLS (quick)
+
+```sql
+alter table profiles enable row level security;
+create policy "self-read" on profiles for select using (auth.uid() = id);
+create policy "self-write" on profiles for update using (auth.uid() = id);
+```
+
+---
+
+## 2) Mirror Coins (placeholder accounting)
+
+```sql
+create table if not exists mirror_wallets (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  balance integer default 0,
+  updated_at timestamptz default now()
+);
+
+create table if not exists mirror_tx (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  delta integer not null,              -- negative = spend
+  reason text,                         -- 'mockup', 'reverse_vision', etc.
+  meta jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+```
+
+Server helper:
+
+```ts
+// services/mirror.ts
+import { supabase } from "./supabase.js";
+
+export async function spendCoins(userId: string, amount: number, reason: string, meta: any = {}) {
+  const { data: w } = await supabase.from("mirror_wallets").select("balance").eq("user_id", userId).single();
+  const balance = w?.balance ?? 0;
+  if (balance < amount) throw new Error("INSUFFICIENT_COINS");
+  await supabase.from("mirror_wallets").update({ balance: balance - amount }).eq("user_id", userId);
+  await supabase.from("mirror_tx").insert([{ user_id: userId, delta: -amount, reason, meta }]);
+}
+
+export async function grantCoins(userId: string, amount: number, reason = "grant", meta: any = {}) {
+  const { data: w } = await supabase.from("mirror_wallets").select("balance").eq("user_id", userId).single();
+  const balance = w?.balance ?? 0;
+  if (!w) await supabase.from("mirror_wallets").insert([{ user_id: userId, balance: amount }]);
+  else await supabase.from("mirror_wallets").update({ balance: balance + amount }).eq("user_id", userId);
+  await supabase.from("mirror_tx").insert([{ user_id: userId, delta: amount, reason, meta }]);
+}
+```
+
+---
+
+## 3) Empress OS Job Queue Bridge
+
+**Env vars (Rainbow server):**
+
+```
+EMPRESS_API_URL=https://baby-empress.example.com
+EMPRESS_API_KEY=super-secret
+```
+
+### Axios client
+
+```ts
+// services/empress.ts
+import axios from "axios";
+
+export const empress = axios.create({
+  baseURL: process.env.EMPRESS_API_URL,
+  timeout: 25000,
+  headers: { "x-empress-key": process.env.EMPRESS_API_KEY! }
+});
+```
+
+### a) Generate Mockup endpoint
+
+```ts
+// routes/integrations.ts
+import express from "express";
+import { requireAuth } from "../middleware/auth.js";
+import { supabase } from "../services/supabase.js";
+import { empress } from "../services/empress.js";
+import { spendCoins } from "../services/mirror.js";
+import { logEvent } from "../services/logger.js";
+
+const router = express.Router();
+router.use(requireAuth);
+
+// POST /api/integrations/mockup
+router.post("/mockup", async (req, res) => {
+  const { project_id, prompt, model = "leonardo", width = 1024, height = 1024, ref_image_url } = req.body;
+  if (!project_id || !prompt) return res.status(400).json({ error: "Missing project_id or prompt" });
+
+  // optional coin spend
+  try { await spendCoins(req.user.id, 1, "mockup", { project_id }); } catch (e:any) {
+    if (e.message === "INSUFFICIENT_COINS") return res.status(402).json({ error: "Not enough Mirror Coins" });
+    throw e;
+  }
+
+  // enqueue at Empress OS
+  const { data: job } = await empress.post("/api/jobs/mockup", {
+    user_id: req.user.id,
+    project_id,
+    model, prompt, width, height, ref_image_url
+  });
+
+  // persist local pointer
+  await supabase.from("analytics_events").insert([{
+    owner_id: req.user.id, event_type: "mockup_enqueued", entity_table: "projects", entity_id: project_id, meta: { job_id: job.id, model }
+  }]);
+
+  res.json({ ok: true, job });
+});
+
+// webhook to receive finished file from Empress OS
+// POST /api/integrations/webhooks/mockup
+router.post("/webhooks/mockup", async (req, res) => {
+  // verify secret header if you want
+  const { job_id, project_id, file_url, thumbnail_url, model } = req.body;
+  await supabase.from("assets").insert([{
+    project_id, owner_id: req.body.user_id, file_name: `mockup_${job_id}.png`,
+    file_type: "image/png", file_url, thumbnail_url, category: "ai_render",
+    mirror_meta: { source: "EmpressOS", model }
+  }]);
+  await logEvent(req.body.user_id, "asset_uploaded", "assets", job_id, { from_job: job_id });
+  return res.json({ ok: true });
+});
+
+export default router;
+```
+
+**Empress OS job contract (for your other app):**
+
+```json
+// Request (Rainbow → Empress)
+/api/jobs/mockup
+{
+  "user_id":"<uuid>",
+  "project_id":"<uuid>",
+  "model":"leonardo",
+  "prompt":"editorial realism, ...",
+  "width":1024,"height":1024,
+  "ref_image_url":"optional"
+}
+
+// Empress responds:
+{ "id":"job_abc123", "status":"queued" }
+
+// Empress later POSTs webhook → Rainbow:
+/api/integrations/webhooks/mockup
+{
+  "job_id":"job_abc123",
+  "user_id":"<uuid>",
+  "project_id":"<uuid>",
+  "file_url":"https://...",
+  "thumbnail_url":"https://...",
+  "model":"leonardo",
+  "status":"succeeded"
+}
+```
+
+---
+
+### b) Reverse Vision (16-Part Prompt Analysis)
+
+```ts
+// routes/integrations.ts (add)
+router.post("/reverse-vision", requireAuth, async (req, res) => {
+  const { asset_id } = req.body;
+  if (!asset_id) return res.status(400).json({ error: "Missing asset_id" });
+
+  const { data: asset, error } = await supabase.from("assets").select("*").eq("id", asset_id).single();
+  if (error || !asset) return res.status(404).json({ error: "Asset not found" });
+
+  // spend coins
+  try { await spendCoins(req.user.id, 1, "reverse_vision", { asset_id }); } catch (e:any) {
+    if (e.message === "INSUFFICIENT_COINS") return res.status(402).json({ error: "Not enough Mirror Coins" });
+    throw e;
+  }
+
+  // call Empress Reverse Mode
+  const { data: result } = await empress.post("/api/forensics/reverse-vision", {
+    user_id: req.user.id,
+    image_url: asset.file_url,
+    mode: "empress_v7_16_anchor"
+  });
+
+  // store as a derived asset note (or separate table if you prefer)
+  await supabase.from("assets").update({
+    mirror_meta: { ...(asset.mirror_meta ?? {}), reverse_vision: result.analysis }
+  }).eq("id", asset_id);
+
+  await logEvent(req.user.id, "reverse_vision", "assets", asset_id, { anchors: result.analysis?.length || 0 });
+  res.json({ ok: true, analysis: result.analysis });
+});
+```
+
+**Expected Empress response minimal:**
+
+```json
+{
+  "analysis": [
+    {"anchor":"Subject", "value":"Latina woman, soft trap vibe, ..."},
+    {"anchor":"Lens/DoF","value":"85mm, shallow DOF, ..."},
+    {"anchor":"Lighting","value":"volumetric key + gold rim, ..."},
+    ...
+    {"anchor":"Legal/IP","value":"no training rights granted; mirror protocol active"}
+  ]
+}
+```
+
+---
+
+## 4) Front-End Hooks
+
+### a) Project View → “Generate Mockup”
+
+In your project panel (e.g., `ProjectSidebar.tsx`):
+
+```tsx
+const [loading, setLoading] = useState(false);
+const generate = async () => {
+  setLoading(true);
+  await fetch("/api/integrations/mockup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: project.id,
+      prompt: currentPrompt,              // from Empress V7 prompt editor
+      model: selectedModel,               // "leonardo" | "dalle" | "flux"
+      ref_image_url: referenceUrl || null
+    })
+  }).then(r=>r.json());
+  setLoading(false);
+  toast.success("Mockup enqueued");
+};
+```
+
+Button:
+
+```tsx
+<Button onClick={generate}>{loading ? "Enqueuing…" : "Generate Mockup"}</Button>
+```
+
+### b) Asset Card → “Reverse Vision”
+
+In `AssetLibrary` grid item:
+
+```tsx
+const reverseVision = async (assetId:string) => {
+  await fetch("/api/integrations/reverse-vision", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ asset_id: assetId })
+  }).then(r=>r.json()).then(({analysis})=>{
+    // show a modal with 16 anchors
+    setAnalysis(analysis);
+    setShowModal(true);
+  });
+};
+```
+
+Action dropdown: **Reverse Vision (16-part)**
+
+---
+
+## 5) Security / Hardening
+
+* **Webhook secret**: require `x-empress-signature` HMAC header on `/webhooks/mockup` to verify origin.
+* **Rate limits**: per-user minute cap on `/mockup` and `/reverse-vision` (e.g., 10/min via in-memory token bucket or Redis).
+* **Coins enforcement**: 402 status for insufficient balance; the UI should open a **Buy Coins** modal (coming in Phase 10 monetization scaffold).
+* **Audit**: log every bridge call in `analytics_events` (types: `mockup_enqueued`, `asset_uploaded`, `reverse_vision`).
+
+---
+
+## 6) Minimal UI for Coins (temporary)
+
+In `Settings`:
+
+```tsx
+const grant = async () => await fetch("/api/dev/grant-coins", { method:"POST" });
+```
+
+Server route (dev-only):
+
+```ts
+router.post("/dev/grant-coins", requireAuth, async (req,res)=>{
+  await grantCoins(req.user.id, 10, "dev_grant");
+  res.json({ ok:true });
+});
+```
+
+---
+
+## 7) Success Criteria
+
+* ✅ “Generate Mockup” enqueues a job in Empress OS and receives finished files via webhook into `assets`.
+* ✅ “Reverse Vision” annotates any asset with the 16-anchor analysis JSON.
+* ✅ Users/coins unified across apps; spending enforced.
+* ✅ Events logged into analytics for charts and AI Insights.
+
+---
+
+## 8) Next Up (10.8 Preview — Mobile Companion)
+
+We’ll ship an Expo app with offline cache, event checklists, push notifications for proof approvals, and quick “scan QR → open proof” tools. Ready to roll into **Payload 10.8 — Mobile Companion (React Native / Expo)**?

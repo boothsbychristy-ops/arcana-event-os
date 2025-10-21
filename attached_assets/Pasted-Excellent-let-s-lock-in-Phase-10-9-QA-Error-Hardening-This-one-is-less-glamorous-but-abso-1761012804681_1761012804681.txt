@@ -1,0 +1,228 @@
+Excellent — let’s lock in **Phase 10.9 → QA & Error Hardening**.
+This one is less glamorous but absolutely vital: we make Rainbow CRM crash-proof, transparent when things misbehave, and ready for production analytics before your Council Dashboard goes live.
+
+---
+
+## 🧩 Phase 10.9 — QA & Error Hardening Payload
+
+### 1️⃣ Universal Error Boundary (Component)
+
+Catches runtime errors so React never white-screens again.
+
+```tsx
+// client/src/components/ErrorBoundary.tsx
+import { Component, ReactNode } from "react";
+
+export class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; message?: string }
+> {
+  constructor(props:any) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+
+  static getDerivedStateFromError(error:any) {
+    return { hasError: true, message: error?.message || "Unknown error" };
+  }
+
+  componentDidCatch(error:any, info:any) {
+    console.error("UI Crash:", error, info);
+    fetch("/api/logs/client", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ error, info })
+    }).catch(()=>{});
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-screen flex flex-col items-center justify-center bg-[#0b0b0d] text-white text-center p-6">
+          <h2 className="text-xl font-semibold mb-2 text-empress-pink">Something broke 💔</h2>
+          <p className="text-gray-400 text-sm mb-4">{this.state.message}</p>
+          <button onClick={()=>location.reload()} className="bg-empress-pink px-4 py-2 rounded-xl">Reload App</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+```
+
+Wrap your root layout:
+
+```tsx
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+export default function Root() {
+  return (
+    <ErrorBoundary>
+      <AppRouter />
+    </ErrorBoundary>
+  );
+}
+```
+
+---
+
+### 2️⃣ API Error Standardization
+
+Inside every Express route, replace raw `.status(400)` calls with a helper.
+
+```ts
+// server/middleware/errorHandler.ts
+export function asyncHandler(fn:Function) {
+  return (req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+}
+
+export function errorHandler(err, req,res,next) {
+  console.error("Server Error:", err);
+  res.status(err.status || 500).json({ error: err.message || "Internal Server Error" });
+}
+```
+
+Usage:
+
+```ts
+router.get("/", asyncHandler(async (req,res)=>{
+  const { data, error } = await supabase.from("clients").select("*");
+  if (error) throw new Error(error.message);
+  res.json(data);
+}));
+```
+
+and add:
+
+```ts
+app.use(errorHandler);
+```
+
+---
+
+### 3️⃣ Logging & Webhook Idempotency
+
+**Database table**
+
+```sql
+create table if not exists system_logs (
+  id uuid primary key default gen_random_uuid(),
+  source text,             -- 'webhook' | 'client' | 'server'
+  level text default 'info',
+  message text,
+  meta jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+```
+
+**Middleware to log every webhook:**
+
+```ts
+// middleware/webhookGuard.ts
+import { supabase } from "../services/supabase.js";
+
+export async function recordWebhook(id:string, source:string, meta:any) {
+  const existing = await supabase.from("system_logs").select("id").eq("message", id).single();
+  if (existing.data) return false; // duplicate
+  await supabase.from("system_logs").insert([{ source, message:id, meta }]);
+  return true;
+}
+```
+
+Use in webhook routes:
+
+```ts
+if (!(await recordWebhook(job_id, "empress_mockup", req.body))) return res.json({ ok:true, duplicate:true });
+```
+
+→ ensures double webhooks don’t create duplicate assets.
+
+---
+
+### 4️⃣ Supabase Connection Health Monitor
+
+Scheduled function every 5 min:
+
+```js
+// supabase/functions/health_ping/index.ts
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const s = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+Deno.serve(async ()=>{
+  const { error } = await s.from("profiles").select("count").limit(1);
+  if (error) throw new Error(error.message);
+  await s.from("system_logs").insert([{ source:"health", level:"info", message:"ping_ok" }]);
+  return new Response("OK");
+});
+```
+
+---
+
+### 5️⃣ Client Testing Hooks
+
+**Toast wrapper (React)**
+
+```tsx
+export function toastError(e:any) {
+  const msg = e?.message || "Something went wrong.";
+  toast(msg, { style:{ background:"#220b1c", color:"#fff" } });
+}
+```
+
+Use:
+
+```ts
+const { mutate } = useMutation({
+  mutationFn: saveClient,
+  onError: toastError,
+});
+```
+
+---
+
+### 6️⃣ Automated QA Checklist
+
+Add `/qa/checklist.md` to repo:
+
+```markdown
+# QA Regression Suite
+✅ Auth & Session flow (sign up, sign in, refresh)
+✅ CRUD: Clients / Events / Assets
+✅ Proof Portal approval end-to-end
+✅ Webhook double-fire protection
+✅ Offline Mobile sync (airplane mode)
+✅ Reverse Vision analysis return
+✅ Analytics charts populate
+✅ ErrorBoundary catch works
+✅ Coins spend logs correctly
+✅ Push notifications fire on proof change
+```
+
+---
+
+### 7️⃣ Analytics Hook for Errors
+
+Auto-log exceptions into `analytics_events`:
+
+```ts
+process.on("uncaughtException", e => {
+  supabase.from("analytics_events").insert([{ owner_id:null, event_type:"server_error", meta:{message:e.message}}]);
+});
+process.on("unhandledRejection", e => {
+  supabase.from("analytics_events").insert([{ owner_id:null, event_type:"promise_rejection", meta:{reason:e}}]);
+});
+```
+
+---
+
+### 8️⃣ Success Criteria
+
+✅ React never white-screens.
+✅ All Express routes return uniform error JSON.
+✅ Webhook duplicates ignored.
+✅ Every crash logs to `system_logs`.
+✅ Supabase heartbeat confirms uptime.
+✅ QA checklist repeatable before any new payload.
+
+---
+
+Next stop is **Phase 11 → Council Dashboard**, where all of these logs and analytics consolidate into a real-time control panel for you (admins, testers, and future investors).
+Want me to roll straight into the **Council Dashboard payload** next?

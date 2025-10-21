@@ -1,0 +1,216 @@
+Locked in. Let’s move forward with **Payload 10.3 → Asset Library & File Uploader** — the creative backbone that connects Rainbow CRM to Baby Empress OS.
+This module gives every project its own visual library for AI renders, overlays, templates, and deliverables, with built-in Mirror Protocol tagging and preview logic.
+
+---
+
+## 🧩 Payload 10.3 — Asset Library & File Uploader
+
+### 1️⃣ Supabase Schema Migration
+
+```sql
+-- ASSETS: stores uploaded or generated creative files
+create table if not exists assets (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid references projects(id) on delete cascade,
+  owner_id uuid references auth.users(id) on delete cascade,
+  file_name text not null,
+  file_type text,                 -- image/png, image/jpeg, video/mp4, etc.
+  file_url text not null,         -- Supabase storage public URL
+  thumbnail_url text,             -- optional smaller preview
+  category text default 'upload', -- upload | overlay | backdrop | ai_render | video
+  tags text[],                    -- e.g. ['blue','corporate','portrait']
+  mirror_meta jsonb default '{}'::jsonb,
+  size_kb numeric(10,2),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- optional lightweight view for easy listing
+create view asset_summary as
+select id, project_id, file_name, category, created_at
+from assets;
+```
+
+🔒 Enable RLS: `auth.uid() = owner_id` for CRUD security.
+🔗 All uploads link to `project_id` so proofs and assets stay grouped.
+
+---
+
+### 2️⃣ Supabase Storage Setup
+
+* Create a **storage bucket** named `assets`.
+* Configure public read URLs but private write permissions.
+* Folder pattern:
+  `/assets/{owner_id}/{project_id}/{file_name}`
+
+---
+
+### 3️⃣ Express API Route (/routes/assets.ts)
+
+```ts
+import express from "express";
+import multer from "multer";
+import { supabase } from "../services/supabase.js";
+import { requireAuth } from "../middleware/auth.js";
+
+const upload = multer({ storage: multer.memoryStorage() });
+const router = express.Router();
+
+router.use(requireAuth);
+
+// UPLOAD new asset
+router.post("/", upload.single("file"), async (req, res) => {
+  const file = req.file;
+  const { project_id, category, tags } = req.body;
+  const path = `${req.user.id}/${project_id}/${file.originalname}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("assets")
+    .upload(path, file.buffer, {
+      contentType: file.mimetype,
+      upsert: true,
+    });
+  if (uploadError) return res.status(400).json({ error: uploadError });
+
+  const { data: { publicUrl } } = supabase.storage.from("assets").getPublicUrl(path);
+
+  const { error } = await supabase.from("assets").insert([
+    {
+      project_id,
+      owner_id: req.user.id,
+      file_name: file.originalname,
+      file_type: file.mimetype,
+      file_url: publicUrl,
+      category,
+      tags,
+      size_kb: file.size / 1024,
+      mirror_meta: { license: "PBFX/EmpressOS", sensitivity: "inclusive" },
+    },
+  ]);
+  if (error) return res.status(400).json({ error });
+  res.json({ success: true, url: publicUrl });
+});
+
+// LIST assets by project
+router.get("/:project_id", async (req, res) => {
+  const { data, error } = await supabase
+    .from("assets")
+    .select("*")
+    .eq("project_id", req.params.project_id)
+    .order("created_at", { ascending: false });
+  if (error) return res.status(400).json({ error });
+  res.json(data);
+});
+
+export default router;
+```
+
+---
+
+### 4️⃣ React UI Page
+
+`client/src/pages/dashboard/assets.tsx`
+
+```tsx
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+
+export default function AssetLibrary({ projectId }: { projectId: string }) {
+  const [uploading, setUploading] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [category, setCategory] = useState("upload");
+
+  const { data: assets = [], refetch } = useQuery(["assets", projectId], async () => {
+    const { data, error } = await supabase
+      .from("assets")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data;
+  });
+
+  const uploadFile = async () => {
+    if (!file) return;
+    setUploading(true);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("project_id", projectId);
+    form.append("category", category);
+    await fetch("/api/assets", { method: "POST", body: form });
+    setFile(null);
+    setUploading(false);
+    refetch();
+  };
+
+  return (
+    <div className="bg-[#0b0b0d] text-white min-h-screen p-6">
+      <h1 className="text-xl font-semibold mb-4">Asset Library</h1>
+
+      <div className="flex gap-3 mb-6">
+        <input
+          type="file"
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          className="text-sm"
+        />
+        <select
+          className="bg-white/10 rounded-lg p-2 outline-none"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        >
+          <option value="upload">Upload</option>
+          <option value="overlay">Overlay</option>
+          <option value="backdrop">Backdrop</option>
+          <option value="ai_render">AI Render</option>
+          <option value="video">Video</option>
+        </select>
+        <button
+          onClick={uploadFile}
+          disabled={uploading}
+          className="bg-pink-600 hover:bg-pink-700 px-4 py-2 rounded-xl"
+        >
+          {uploading ? "Uploading…" : "Upload"}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4">
+        {assets.map((a: any) => (
+          <div key={a.id} className="bg-white/5 rounded-xl p-2">
+            <img
+              src={a.file_url}
+              alt={a.file_name}
+              className="rounded-lg object-cover w-full h-40"
+            />
+            <p className="text-xs mt-1 truncate">{a.file_name}</p>
+            <p className="text-[10px] text-gray-500">{a.category}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+### 5️⃣ Success Criteria
+
+✅ Upload & store files via Supabase Storage.
+✅ Metadata saved in `assets` table with Mirror Protocol JSON.
+✅ Dynamic filtering by project and category.
+✅ Thumbnails and file previews displayed with Neon Glass styling.
+✅ Foundational bridge for “Generate Mockup” and AI render flows.
+
+---
+
+### 6️⃣ Next Payload Preview (10.4)
+
+→ **Smart Automations + Email Reminders**
+
+* Supabase Functions for “proof not approved in X days”.
+* Calendar sync with Google API.
+* AI summary notes (Gemini mini).
+* In-app notifications and Digest emails.
+
+Would you like me to proceed with **Payload 10.4 — Smart Automations + Email Reminders** next?

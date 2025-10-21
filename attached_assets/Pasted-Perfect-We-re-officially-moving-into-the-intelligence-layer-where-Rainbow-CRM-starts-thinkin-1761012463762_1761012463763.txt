@@ -1,0 +1,215 @@
+Perfect. We’re officially moving into the **intelligence layer** — where Rainbow CRM starts *thinking* like the creative operations command center it was meant to be.
+This next drop adds structured analytics logging, interactive charts, and AI-generated insights, transforming your beautiful Neon Glass dashboard into a live data mirror of business health.
+
+---
+
+## 🧩 Payload 10.6 — Analytics + Reporting Layer
+
+### 1️⃣ Supabase Schema Migration
+
+```sql
+-- ANALYTICS EVENTS TABLE
+create table if not exists analytics_events (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references auth.users(id) on delete cascade,
+  event_type text not null,               -- e.g. proof_approved, asset_uploaded, client_created
+  entity_id uuid,                         -- links to clients/events/projects/proofs
+  entity_table text,
+  meta jsonb default '{}'::jsonb,         -- contextual data (filename, value, etc.)
+  created_at timestamptz default now()
+);
+
+-- DAILY AGGREGATES VIEW
+create view analytics_daily as
+select 
+  owner_id,
+  date_trunc('day', created_at) as day,
+  count(*) as total_events,
+  count(*) filter (where event_type = 'proof_approved') as approvals,
+  count(*) filter (where event_type = 'client_created') as new_clients,
+  count(*) filter (where event_type = 'asset_uploaded') as uploads
+from analytics_events
+group by owner_id, day;
+```
+
+🔒 RLS: `auth.uid() = owner_id`.
+
+---
+
+### 2️⃣ Backend Event Logger Helper
+
+(`/services/logger.ts`)
+
+```ts
+import { supabase } from "./supabase.js";
+
+export async function logEvent(userId: string, type: string, entityTable: string, entityId: string, meta: any = {}) {
+  await supabase.from("analytics_events").insert([
+    { owner_id: userId, event_type: type, entity_table: entityTable, entity_id: entityId, meta },
+  ]);
+}
+```
+
+Use `logEvent()` inside client, event, proof, or asset routes after successful actions.
+
+Example:
+
+```ts
+await logEvent(req.user.id, "proof_approved", "proofs", req.params.id, { title: proof.title });
+```
+
+---
+
+### 3️⃣ React Page: `client/src/pages/dashboard/analytics.tsx`
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { GlassCard } from "@/components/GlassCard";
+import { HeaderStats } from "@/components/HeaderStats";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
+import { motion } from "framer-motion";
+
+export default function AnalyticsDashboard() {
+  const { data: rows = [] } = useQuery(["analytics"], async () => {
+    const { data, error } = await supabase.from("analytics_daily").select("*").order("day", { ascending: true });
+    if (error) throw error;
+    return data;
+  });
+
+  const totals = {
+    approvals: rows.reduce((a, r) => a + (r.approvals || 0), 0),
+    clients: rows.reduce((a, r) => a + (r.new_clients || 0), 0),
+    uploads: rows.reduce((a, r) => a + (r.uploads || 0), 0),
+  };
+
+  return (
+    <div className="min-h-screen text-white">
+      <HeaderStats
+        stats={[
+          { label: "Approvals", value: totals.approvals },
+          { label: "New Clients", value: totals.clients },
+          { label: "Uploads", value: totals.uploads },
+          { label: "Days Tracked", value: rows.length },
+        ]}
+      />
+      <GlassCard>
+        <h2 className="text-sm text-gray-400 mb-3">Event Activity (Last 30 Days)</h2>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={rows}>
+              <XAxis dataKey="day" hide />
+              <YAxis hide />
+              <Tooltip contentStyle={{ background: "#1a1a1a", border: "none" }} />
+              <Line type="monotone" dataKey="total_events" stroke="#ff6fae" strokeWidth={2} />
+              <Line type="monotone" dataKey="approvals" stroke="#ffd580" strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </GlassCard>
+
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+        <GlassCard>
+          <h2 className="text-sm text-gray-400 mb-3">Event Breakdown</h2>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows}>
+                <XAxis dataKey="day" hide />
+                <Tooltip contentStyle={{ background: "#1a1a1a", border: "none" }} />
+                <Bar dataKey="approvals" fill="#ff6fae" stackId="a" />
+                <Bar dataKey="uploads" fill="#ffd580" stackId="a" />
+                <Bar dataKey="new_clients" fill="#8884d8" stackId="a" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </GlassCard>
+      </motion.div>
+    </div>
+  );
+}
+```
+
+---
+
+### 4️⃣ AI Insights Card (Component)
+
+```tsx
+import { useState } from "react";
+import { GlassCard } from "@/components/GlassCard";
+
+export function AIInsights({ events }: { events: any[] }) {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const generate = async () => {
+    setLoading(true);
+    const resp = await fetch("/api/ai/insight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events }),
+    });
+    const data = await resp.json();
+    setSummary(data.text);
+    setLoading(false);
+  };
+
+  return (
+    <GlassCard>
+      <h2 className="text-sm text-gray-400 mb-3">AI Insights</h2>
+      <button
+        onClick={generate}
+        className="bg-empress-pink px-4 py-2 rounded-xl text-sm mb-3 hover:bg-empress-pink/80"
+      >
+        {loading ? "Analyzing..." : "Generate Summary"}
+      </button>
+      {summary && <p className="text-sm text-gray-200 whitespace-pre-line">{summary}</p>}
+    </GlassCard>
+  );
+}
+```
+
+Backend endpoint `/routes/ai.ts` can call Gemini Flash or GPT-4 mini with:
+“Summarize this week’s analytics events and suggest actionable improvements in 3 sentences.”
+
+---
+
+### 5️⃣ Exports
+
+Add simple CSV export utility:
+
+```ts
+export function exportCSV(data: any[], filename: string) {
+  const csv = [Object.keys(data[0]).join(","), ...data.map(r => Object.values(r).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+}
+```
+
+Add a “Download CSV” button in Analytics page.
+
+---
+
+### 6️⃣ Success Criteria
+
+✅ Every core action logged in `analytics_events`.
+✅ Charts show daily trends & breakdowns.
+✅ AI Insights card produces summaries.
+✅ CSV export available.
+✅ Everything wrapped in Neon Glass theme.
+
+---
+
+### 7️⃣ Next Payload Preview (10.7)
+
+→ **Integration Bridge → Empress OS**
+We’ll connect Rainbow CRM directly to Baby Empress:
+
+* “Generate Mockup” button using Empress V7 API.
+* Reverse image → 16-anchor prompt extraction.
+* Unified user table + Mirror Coins accounting.
+
+Would you like me to proceed with **Payload 10.7 — Integration Bridge → Empress OS** next?

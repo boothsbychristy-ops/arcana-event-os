@@ -1,0 +1,194 @@
+Perfect — we’ll stay locked in.
+Here’s **Payload 10.1-B → React Front-End Scaffold for the Client Pipeline + Event Linker**.
+It’s designed to drop into your `client/src/pages/dashboard/pipeline.tsx` file and pull live data from Supabase.
+This code assumes you already have Tailwind, TanStack Query, and the Supabase JS client configured.
+
+---
+
+## 🎨 Payload 10.1-B — Pipeline Board + Client Modal (React)
+
+### `client/src/pages/dashboard/pipeline.tsx`
+
+```tsx
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { PlusCircle, X } from "lucide-react";
+
+type Client = {
+  id: string;
+  name: string;
+  email?: string;
+  status: "lead" | "booked" | "completed" | "archived";
+  events?: { id: string; title: string; event_date: string | null }[];
+};
+
+const STATUS_COLUMNS = [
+  { key: "lead", label: "Leads" },
+  { key: "booked", label: "Booked" },
+  { key: "completed", label: "Completed" },
+  { key: "archived", label: "Archived" },
+];
+
+export default function PipelinePage() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", status: "lead" });
+
+  const { data: clients = [] } = useQuery(["clients"], async () => {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("*, events(id,title,event_date)")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data as Client[];
+  });
+
+  const createClient = useMutation({
+    mutationFn: async (body: Partial<Client>) => {
+      const { error } = await supabase.from("clients").insert(body);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries(["clients"]);
+      setShowModal(false);
+      setForm({ name: "", email: "", status: "lead" });
+    },
+  });
+
+  return (
+    <div className="min-h-screen bg-[#0b0b0d] text-white p-6">
+      <header className="flex items-center justify-between mb-8">
+        <h1 className="text-2xl font-semibold tracking-wide">Client Pipeline</h1>
+        <button
+          onClick={() => setShowModal(true)}
+          className="flex items-center gap-2 bg-pink-600 hover:bg-pink-700 px-4 py-2 rounded-xl"
+        >
+          <PlusCircle size={18} /> New Client
+        </button>
+      </header>
+
+      <div className="grid grid-cols-4 gap-4">
+        {STATUS_COLUMNS.map((col) => (
+          <div key={col.key} className="bg-white/5 backdrop-blur-lg rounded-2xl p-4">
+            <h2 className="text-sm uppercase tracking-wider mb-3 text-gray-400">
+              {col.label}
+            </h2>
+            {clients
+              .filter((c) => c.status === col.key)
+              .map((c) => (
+                <ClientCard key={c.id} client={c} />
+              ))}
+          </div>
+        ))}
+      </div>
+
+      {showModal && (
+        <Modal onClose={() => setShowModal(false)}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createClient.mutate(form);
+            }}
+            className="space-y-4"
+          >
+            <h2 className="text-lg font-semibold">Add New Client</h2>
+            <input
+              className="w-full rounded-lg bg-white/10 p-2 outline-none"
+              placeholder="Client Name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required
+            />
+            <input
+              className="w-full rounded-lg bg-white/10 p-2 outline-none"
+              placeholder="Email (optional)"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+            <select
+              className="w-full rounded-lg bg-white/10 p-2 outline-none"
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value })}
+            >
+              {STATUS_COLUMNS.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="w-full bg-pink-600 hover:bg-pink-700 rounded-xl py-2 mt-2"
+            >
+              Save Client
+            </button>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// --- Components ---
+
+function ClientCard({ client }: { client: Client }) {
+  return (
+    <div className="p-3 mb-3 rounded-xl bg-white/10 hover:bg-white/20 transition-all">
+      <h3 className="font-medium text-sm">{client.name}</h3>
+      {client.email && (
+        <p className="text-xs text-gray-400 mb-1">{client.email}</p>
+      )}
+      {client.events && client.events.length > 0 && (
+        <p className="text-xs text-gray-400">
+          {client.events.length} event{client.events.length > 1 && "s"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Modal({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50">
+      <div className="bg-[#141416] p-6 rounded-2xl w-[400px] relative">
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 text-gray-400 hover:text-white"
+        >
+          <X size={18} />
+        </button>
+        {children}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+### 🧠 Behavior Summary
+
+* Loads all clients + nested events from Supabase.
+* Displays a 4-column board (Lead → Booked → Completed → Archived).
+* “New Client” button opens modal → inserts directly into Supabase.
+* Auto-refreshes via TanStack Query invalidate.
+* Styles follow your Neon Glass aesthetic: blurred panes, pink accents, dark theme.
+
+---
+
+### 🔮 Next Step (10.2 Preview)
+
+Once this pipeline is stable, the next payload adds:
+
+* `EventDrawer.tsx` with tabbed detail view (Overview | Projects | Notes).
+* “Add Event” modal linked to each client.
+* Proofing portal entry point (`/proof/:id`).
+
+Would you like me to generate **Payload 10.2 — Design Proofing Portal (Client-Facing MVP)** next so you can wire in approvals and comments?
