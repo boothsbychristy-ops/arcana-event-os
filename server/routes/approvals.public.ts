@@ -28,6 +28,23 @@ approvalsPublicRouter.get("/:token", asyncHandler(async (req, res) => {
     throw Errors.NOT_FOUND("Invalid or expired approval link");
   }
   
+  // Check if link has expired
+  if (approval.shareExpiresAt && new Date() > approval.shareExpiresAt) {
+    res.status(410).json({ 
+      error: "LINK_EXPIRED",
+      message: "This approval link has expired. Please contact the sender for a new link."
+    });
+    return;
+  }
+  
+  // Update view count and last viewed
+  await db.update(approvals)
+    .set({ 
+      viewsCount: (approval.viewsCount || 0) + 1,
+      lastViewedAt: new Date()
+    })
+    .where(eq(approvals.id, approval.id));
+  
   // Return public-safe fields only
   res.json({
     id: approval.id,
@@ -37,6 +54,7 @@ approvalsPublicRouter.get("/:token", asyncHandler(async (req, res) => {
     draftUrl: approval.draftUrl,
     assetsJson: approval.assetsJson,
     createdAt: approval.createdAt,
+    viewsCount: (approval.viewsCount || 0) + 1,
     // Don't expose: ownerId, feedbackNotes (internal), approvedAt
   });
 }));

@@ -1,0 +1,136 @@
+got it — “team of one” mode engaged. here’s a brutally practical, solo-friendly plan to get Rainbow CRM over the closed-beta line without burning you out.
+
+# Solo Beta-Ready Plan (no fluff, just moves)
+
+## 0) Branch + flags (so you can ship incrementally)
+
+* Create a branch: `git checkout -b phase/11.3-delight`
+* Add env flags (default `true` on staging):
+  `DELIGHT_PINS`, `DELIGHT_COMPARE`, `DELIGHT_SIGNED_URLS`, `DELIGHT_WATERMARKS`
+* In React, guard new UI behind those flags so you can merge partial work safely.
+
+## 1) Migrations in first (one and done)
+
+* Create `migrations/11_3_delight.sql` using the SQL I gave you earlier (pins, versions, expiry, derivatives, alt text, KPIs).
+* Run: `npm run db:push` (or your drizzle command).
+* Verify columns appeared for `proofs`, `proof_comments`, `approvals`, `assets`.
+
+## 2) Proof pins (backend + tiny UI stub)
+
+* **Backend:** add `POST /api/proofs/:id/comments` to accept `{ message, x, y, zoom, reason }`, validate reason against `logo|color|text|other`.
+* **Frontend:** drop in `PinLayer.tsx` from my last message.
+
+  * On image click → open small “Add note” modal (chips for reason + textarea) → POST.
+  * Render numbered pins from existing comments.
+* **Self-QA:** keyboard focus ring, tab through pins, add 10+ pins, refresh and confirm they persist.
+
+## 3) Version compare (fast path)
+
+* **Backend:** `POST /api/proofs/:id/fork` → clones proof, increments `version`, sets `prev_proof_id`.
+* **Frontend:** `Compare.tsx` (the wipe slider).
+
+  * If a proof has `prev_proof_id`, show **Compare** toggle → render previous vs current.
+* **Self-QA:** compare works on desktop + mobile, zoom doesn’t reset when toggling.
+
+## 4) Link expiry + view receipts (trust cues)
+
+* **Backend:**
+
+  * `PATCH /api/approvals/:id/share` to set `share_expires_at`.
+  * In **public GET**, 410 if expired; otherwise `views_count++`, `last_viewed_at=now()`.
+* **Frontend:** “Copy link” button with dropdown: **24h / 7d / custom**. Show “Viewed 3×, last 2:37 PM”.
+* **Self-QA:** once expired, public page shows friendly expired message; dashboard shows counters.
+
+## 5) Thumbnails + watermarked public proofs (speed + safety)
+
+* **Worker:** on new asset/proof image, generate 320/640/1280 and a watermarked public copy. Save paths in `assets.derivatives` and `proofs.image_url_public` (or similar).
+* **Frontend:** use `srcSet` for thumbs; zoom/high-res uses **signed URL** endpoint when `DELIGHT_SIGNED_URLS=true`.
+* **Self-QA:** throttle network to “Fast 3G/4G”; first paint is crisp and quick; public proofs are visibly watermarked, private views are clean.
+
+## 6) Optimistic CRUD + Undo (perceived speed)
+
+* Wrap create/update/delete mutations with optimistic update and rollback.
+* “Undo” toast for deletes; implement soft-delete (`deleted_at`) and a 24h purge job.
+* **Self-QA:** toggle airplane mode, perform a few edits; UI updates instantly; errors roll back.
+
+## 7) Accessibility AA pass (make it truly usable)
+
+* Update contrast tokens; respect `prefers-reduced-motion`.
+* Keyboard-only approval path: add/focus pins, submit approval, navigate modals.
+* **Self-QA:** run Axe DevTools on dashboard, proofs, pipeline, assets → **0 critical**.
+
+## 8) Council UX KPIs (so you can prove it)
+
+* Ensure `council_kpis_last30` view exists (from the migration).
+* Add a tiny KPI card group to Council: **TTFV**, **Approval median (h)**, **Rework rate**, **Share→View %**.
+* Seed at least a couple events so charts don’t look empty.
+
+---
+
+# Solo “done vs not-done” checklist (binary, no vibes)
+
+**Proofs**
+
+* [ ] Can add pin with reason + text
+* [ ] Can compare vN to vN-1 with slider
+* [ ] Public link can expire (410) + shows views/last viewed
+* [ ] Public image is downscaled + watermarked
+* [ ] Private high-res only via signed URL
+
+**Speed**
+
+* [ ] Thumbs 320/640/1280 generated and used
+* [ ] CRUD feels instant; Undo works; soft-delete in DB
+
+**Accessibility**
+
+* [ ] Keyboard-only approval flow possible
+* [ ] Visible focus rings everywhere
+* [ ] Axe shows 0 critical issues on top 6 pages
+
+**Council**
+
+* [ ] TTFV, Approval Median, Rework, Share→View visible for last 30 days
+* [ ] One alert configured and tested (e.g., Approval Median > 72h → email)
+
+---
+
+# Minimal commands & smoke tests
+
+**Migrate & seed**
+
+```
+npm run db:push
+npm run dev
+```
+
+**Local smoke**
+
+* Open `/proof/<token>` in private browser.
+
+  * Confirm not logged in → still sees watermarked preview.
+  * Expire link → reload → 410 message.
+* Open dashboard → create/delete a dummy asset → Undo → asset returns.
+* Throttle network → proofs/asset grid still “feel” fast.
+
+**Axe**
+
+* Install Axe DevTools (extension). Run on Dashboard, Proof Portal, Council.
+
+**Perf**
+
+* Chrome DevTools → Performance panel → look at “Time to interactive” for proofs on mobile emulation. Keep it snappy.
+
+---
+
+# “Why this works” (solo psychology)
+
+* You’re building **trust cues** (expiry, receipts, watermark) and **competence cues** (pins, compare, undo).
+* You’ve got **safety nets** (signed URLs, soft-delete) that let you move faster without fear.
+* You’re measuring **user value** (TTFV, approval turnaround) so you know when to ship the beta.
+
+---
+
+When you’re through steps 1–8 and the checklist is all ✔︎, that’s your green light for **closed beta**. After that, you can peel off into Work Queue + Search (11.4) or Mobile Magic (11.5) depending on where the friction is showing up.
+
+If you want me to sequence the exact files to touch (paths + function names) for your current repo layout, I’ll hand you a micro-diff plan so you can grind through tip-to-tail without context switching.

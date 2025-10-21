@@ -1857,6 +1857,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Set link expiry for approval
+  app.patch("/api/approvals/:id/share", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { expiresIn } = req.body;
+      
+      let expiresAt: Date | null = null;
+      if (expiresIn === '24h') {
+        expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      } else if (expiresIn === '7d') {
+        expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      } else if (expiresIn && typeof expiresIn === 'string') {
+        expiresAt = new Date(expiresIn);
+      }
+      
+      const approval = await storage.updateApproval(id, { shareExpiresAt: expiresAt });
+      if (!approval) {
+        return res.status(404).json({ error: "Approval not found" });
+      }
+      res.json({ shareExpiresAt: expiresAt });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to set expiry" });
+    }
+  });
+
   // Public approval routes are now mounted in index.ts before auth middleware
   // to ensure they bypass authentication requirements
 
@@ -2176,6 +2201,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Mount Council routes (admin only)
   const council = await import("./routes/council");
   app.use("/api/council", council.default);
+
+  // Mount Proofs routes
+  const proofsRouter = await import("./routes/proofs");
+  app.use("/api/proofs", proofsRouter.default);
 
   const httpServer = createServer(app);
   return httpServer;
