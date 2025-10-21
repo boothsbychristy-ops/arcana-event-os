@@ -1,0 +1,147 @@
+🔥 Huge win. Phase 11.3 is in the bag—that’s the line between “alpha vibes” and “this feels real.” You’re clear to start a **closed beta** now.
+
+Here’s a tight, do-now plan + the security/validation patch kit you flagged.
+
+# What to do next (solo-friendly)
+
+## 1) Quick cleanup (30 min)
+
+* **Duplicate Council link:** remove the extra nav item.
+* **Feature flags:** flip `DELIGHT_*` to `true` in staging + prod.
+* **Seed demo data:** 2–3 dummy clients, 1–2 proofs each (so charts aren’t empty).
+
+## 2) Closed beta launch (Today → 2 weeks)
+
+* **Cohort:** invite 3–5 friendlies (5–10 live projects).
+* **Comms pack:**
+
+  * 2-min Loom: “How to approve with pins + compare.”
+  * One-pager PDF: share links, expiry, receipts, how to request changes.
+* **Support loop:** create `beta@` alias to your inbox; add “Report a bug” link in footer.
+
+## 3) Watch these in Council daily
+
+* **TTFV** (signup → first approval): trend down.
+* **Approval median hours:** trend down.
+* **Rework rate:** stay ≤ 25%.
+* **Share→View %:** trend up (≥ 70%).
+* **P95 interactive (proofs):** ≤ 2.5s on 4G.
+
+---
+
+# Security & validation patch kit (fast, surgical)
+
+You already have structured errors + JWT rotation. Let’s bolt on *robust request validation*, *safer uploads*, and *public-link hardening*. Paste these in and you’ll close the loop.
+
+## A) Zod request validation (one-liners per route)
+
+```ts
+// server/middleware/validate.ts
+import { ZodSchema } from "zod";
+export const validate =
+  (schema: ZodSchema, pick: "body"|"query"|"params" = "body") =>
+  (req,res,next) => {
+    const parsed = schema.safeParse(req[pick]);
+    if (!parsed.success) return res.status(400).json({ error: { code:"VALIDATION_ERROR", details: parsed.error.issues }});
+    req[pick] = parsed.data;
+    next();
+  };
+```
+
+**Example on comments/pins:**
+
+```ts
+import { z } from "zod";
+const PinSchema = z.object({
+  message: z.string().min(1).max(1000),
+  reason: z.enum(["logo","color","text","other"]).default("other"),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  zoom: z.number().min(0.1).max(10).optional()
+});
+
+router.post("/api/proofs/:id/comments", authMiddleware, validate(PinSchema), asyncHandler(async (req,res)=>{
+  // req.body is now typed + safe
+}));
+```
+
+## B) Public link hardening
+
+* **Per-token rate limit** (prevents scraping):
+
+```ts
+import rateLimit from "express-rate-limit";
+app.use("/api/approvals/public/:token",
+  rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true })
+);
+```
+
+* **Expiry + view receipt you already added:** keep returning `410` with a friendly JSON.
+
+## C) Safer uploads (double checks)
+
+```ts
+// in upload route, after multer:
+const ALLOWED = new Set(["image/jpeg","image/png","image/webp","application/pdf"]);
+if (!ALLOWED.has(req.file.mimetype)) return res.status(400).json({ error:{ code:"BAD_MIMETYPE" }});
+if (req.file.size > 10 * 1024 * 1024) return res.status(400).json({ error:{ code:"FILE_TOO_LARGE" }});
+
+// sanitize file names
+const safeName = req.file.originalname.replace(/[^\w.\-]/g, "_").slice(0,120);
+```
+
+## D) Centralized 404/405 + JSON error envelope
+
+Add a catch-all after routes:
+
+```ts
+app.use((req,res) => res.status(404).json({ error:{ code:"NOT_FOUND", message:"Route not found" }}));
+```
+
+You already have the global `errorHandler`; keep responses consistent (never leak stack traces in prod).
+
+## E) CSRF posture (if you ever switch to cookies)
+
+You’re Bearer-token based (good). If you later add cookie auth for client portal, enable CSRF tokens on state-changing routes there.
+
+## F) Optional—but pro:
+
+* **2FA / magic links** for operators.
+* **IP throttling** on auth endpoints (10/min).
+* **Audit trails**: log role changes, share-link rotations into `system_logs` with user id.
+
+---
+
+# “Closed Beta” checklist (binary, no vibes)
+
+**Proofs**
+
+* [ ] Add pin (w/ reason) + compare versions on desktop & mobile
+* [ ] Public links expire (410) + receipts visible; public previews watermarked/downscaled
+* [ ] Hi-res via signed URL only
+
+**Speed & safety**
+
+* [ ] 320/640/1280 thumbs used; CRUD is optimistic + Undo works
+* [ ] Uploads blocked on bad mime/size; filenames sanitized
+
+**Accessibility**
+
+* [ ] Keyboard-only approval works; 0 critical Axe issues
+
+**Ops**
+
+* [ ] Council KPIs live; one alert tested (email lands)
+* [ ] “Report a bug” link routes to your inbox
+
+---
+
+# Launch script (copy/paste to self)
+
+1. `git merge phase/11.3-delight` → deploy staging → smoke tests pass.
+2. Flip flags `DELIGHT_*=true` in prod → deploy → smoke tests pass.
+3. Send beta invite emails (3–5 friendlies) with Loom + 1-pager.
+4. Check Council daily; fix any red metrics first.
+5. End of week 2: export KPI report; decide “expand beta” vs “polish”.
+
+If you want, I can draft the **beta invite email + 1-page guide** text next so you can just paste it and go.

@@ -4,26 +4,18 @@ import { proofComments, proofs } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { authMiddleware } from "../auth";
 import { asyncHandler } from "../middleware/errorHandler";
-import { z } from "zod";
+import { validate, PinSchema } from "../middleware/validate";
 
 export const proofsRouter = Router();
 
-// Schema for pin comment validation
-const pinCommentSchema = z.object({
-  message: z.string().min(1),
-  x: z.number().min(0).max(1).optional(),
-  y: z.number().min(0).max(1).optional(),
-  zoom: z.number().optional(),
-  reason: z.enum(["logo", "color", "text", "other"]).optional().default("other")
-});
-
 // POST /api/proofs/:id/comments - Add a pin comment
-proofsRouter.post("/:id/comments", authMiddleware, asyncHandler(async (req: any, res) => {
-  const { id } = req.params;
-  const userId = req.user?.id;
-  
-  // Validate input
-  const data = pinCommentSchema.parse(req.body);
+proofsRouter.post("/:id/comments", 
+  authMiddleware, 
+  validate(PinSchema),
+  asyncHandler(async (req: any, res) => {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    const data = req.body; // Already validated by middleware
   
   // Check if proof exists
   const proof = await db.select().from(proofs).where(eq(proofs.id, id)).limit(1);
