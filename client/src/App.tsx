@@ -32,6 +32,7 @@ import BookingEngineSettings from "@/pages/settings/booking-engine";
 import Pipeline from "@/pages/Pipeline";
 import ProofPortal from "@/pages/ProofPortal";
 import AssetLibrary from "@/pages/AssetLibrary";
+import ApprovalPublic from "@/pages/approval-public";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -62,6 +63,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/staff-apply" component={StaffApply} />
+      <Route path="/approval/:token" component={ApprovalPublic} />
       <Route path="/">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/clients">{() => <ProtectedRoute component={Clients} />}</Route>
       <Route path="/leads">{() => <ProtectedRoute component={Leads} />}</Route>
@@ -95,7 +97,8 @@ function AppLayout() {
 
   // Show public pages without sidebar
   const publicPages = ["/login", "/register", "/staff-apply"];
-  if (publicPages.includes(location)) {
+  const isPublicPage = publicPages.includes(location) || location.startsWith("/approval/");
+  if (isPublicPage) {
     return <Router />;
   }
 

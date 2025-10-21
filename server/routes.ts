@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, or } from "drizzle-orm";
+import crypto from "crypto";
 import { users as usersTable } from "@shared/schema";
 import { z } from "zod";
 import {
@@ -1807,9 +1808,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/approvals", authMiddleware, async (req: AuthRequest, res) => {
     try {
+      // Generate share token server-side
+      const shareToken = crypto.randomUUID();
+      
       const data = insertApprovalSchema.strict().parse({
         ...req.body,
-        ownerId: req.user!.id
+        ownerId: req.user!.id,
+        shareToken // Server-generated token
       });
       const approval = await storage.createApproval(data);
       res.json(approval);
@@ -1836,6 +1841,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to update approval" });
     }
   });
+
+  // Token rotation endpoint for approvals
+  app.post("/api/approvals/:id/rotate-token", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const newToken = crypto.randomUUID();
+      const approval = await storage.updateApproval(id, { shareToken: newToken });
+      if (!approval) {
+        return res.status(404).json({ error: "Approval not found" });
+      }
+      res.json({ shareToken: newToken });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to rotate token" });
+    }
+  });
+
+  // Mount public approval routes (no auth required)
+  const { approvalsPublicRouter } = await import("./routes/approvals.public");
+  app.use("/api/approvals/public", approvalsPublicRouter);
 
   // AI Background Generator
   app.post("/api/ai/background", authMiddleware, async (req: AuthRequest, res) => {
