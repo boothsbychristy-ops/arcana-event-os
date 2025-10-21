@@ -35,6 +35,7 @@ import AssetLibrary from "@/pages/AssetLibrary";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function ProtectedRoute({ component: Component, ...rest }: { component: () => JSX.Element; path?: string }) {
   const { user, isLoading } = useAuth();
@@ -142,14 +143,16 @@ function AppLayout() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <TooltipProvider>
-          <AppLayout />
-          <Toaster />
-        </TooltipProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <TooltipProvider>
+            <AppLayout />
+            <Toaster />
+          </TooltipProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 
