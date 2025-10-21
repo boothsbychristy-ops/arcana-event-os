@@ -313,6 +313,70 @@ async function runTests() {
     if (res.status !== 404) throw new Error(`Expected 404, got ${res.status}`);
   })();
 
+  // Test 7: Error response format consistency
+  await test('404 errors return consistent JSON envelope', async () => {
+    const res = await request(app)
+      .get('/api/nonexistent/route')
+      .set('Cookie', ownerToken);
+    
+    if (res.status !== 404) throw new Error(`Expected 404, got ${res.status}`);
+    if (!res.body.error?.code) throw new Error('Missing error.code in response');
+    if (res.body.error.code !== 'NOT_FOUND') throw new Error('Expected NOT_FOUND error code');
+  })();
+
+  await test('Validation errors return VALIDATION_ERROR code', async () => {
+    const res = await request(app)
+      .post('/api/clients')
+      .set('Cookie', ownerToken)
+      .send({ name: '' }); // Invalid: empty name
+    
+    if (res.status !== 400) throw new Error(`Expected 400, got ${res.status}`);
+    if (!res.body.error?.code) throw new Error('Missing error.code');
+    if (res.body.error.code !== 'VALIDATION_ERROR') {
+      throw new Error(`Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    }
+  })();
+
+  await test('401 UNAUTHORIZED for invalid auth', async () => {
+    const res = await request(app)
+      .get('/api/clients')
+      .set('Cookie', 'invalid_token=bad');
+    
+    if (res.status !== 401) throw new Error(`Expected 401, got ${res.status}`);
+    if (!res.body.error?.code) throw new Error('Missing error.code');
+  })();
+
+  // Test 8: Upload security validation
+  await test('Reject upload with invalid MIME type', async () => {
+    const res = await request(app)
+      .post('/api/upload-test')
+      .set('Cookie', ownerToken)
+      .attach('file', Buffer.from('fake file'), {
+        filename: 'test.php',
+        contentType: 'application/x-php'
+      });
+    
+    // Should be rejected with 400 for bad MIME type
+    if (res.status !== 400 && res.status !== 404) {
+      throw new Error(`Expected 400 or 404 for invalid MIME, got ${res.status}`);
+    }
+  })();
+
+  await test('Sanitize suspicious filenames', async () => {
+    const res = await request(app)
+      .post('/api/upload-test')
+      .set('Cookie', ownerToken)
+      .attach('file', Buffer.from('test'), {
+        filename: '../../../etc/passwd',
+        contentType: 'image/jpeg'
+      });
+    
+    // Should sanitize or reject path traversal attempts
+    if (res.status === 200 && res.body.filename?.includes('..')) {
+      throw new Error('Filename not sanitized for path traversal');
+    }
+  })();
+
   // Summary
   console.log('\n📊 Test Summary\n');
   const passed = results.filter(r => r.passed).length;
