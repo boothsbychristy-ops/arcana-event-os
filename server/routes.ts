@@ -46,6 +46,10 @@ import {
   insertAssetSchema,
   insertUserPrefSchema,
   insertAnalyticsEventSchema,
+  insertDynamicBoardSchema,
+  insertDynamicFieldSchema,
+  insertDynamicItemSchema,
+  insertDynamicFieldValueSchema,
 } from "@shared/schema";
 import {
   hashPassword,
@@ -2196,6 +2200,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const limit = parseInt(req.query.limit as string) || 100;
     const events = await storage.getAnalyticsEvents(ownerId, limit);
     res.json(events);
+  });
+
+  // Dynamic Boards API (Phase 12.0)
+  app.get("/api/boards/dynamic", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const boards = await storage.getAllDynamicBoards(ownerId);
+    res.json(boards);
+  });
+
+  app.get("/api/boards/dynamic/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const board = await storage.getDynamicBoard(req.params.id, ownerId);
+    if (!board) {
+      return res.status(404).json({ error: "Board not found" });
+    }
+    res.json(board);
+  });
+
+  app.post("/api/boards/dynamic", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const data = insertDynamicBoardSchema.parse({ ...req.body, ownerId });
+    const board = await storage.createDynamicBoard(data);
+    res.json(board);
+  });
+
+  app.patch("/api/boards/dynamic/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const board = await storage.updateDynamicBoard(req.params.id, ownerId, req.body);
+    if (!board) {
+      return res.status(404).json({ error: "Board not found" });
+    }
+    res.json(board);
+  });
+
+  app.delete("/api/boards/dynamic/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const success = await storage.deleteDynamicBoard(req.params.id, ownerId);
+    if (!success) {
+      return res.status(404).json({ error: "Board not found" });
+    }
+    res.json({ success: true });
+  });
+
+  // Dynamic Fields API
+  app.get("/api/boards/dynamic/:boardId/fields", authMiddleware, async (req: AuthRequest, res) => {
+    const fields = await storage.getDynamicFieldsByBoard(req.params.boardId);
+    res.json(fields);
+  });
+
+  app.post("/api/boards/dynamic/:boardId/fields", authMiddleware, async (req: AuthRequest, res) => {
+    const data = insertDynamicFieldSchema.parse({ ...req.body, boardId: req.params.boardId });
+    const field = await storage.createDynamicField(data);
+    res.json(field);
+  });
+
+  app.patch("/api/fields/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const field = await storage.updateDynamicField(req.params.id, req.body);
+    if (!field) {
+      return res.status(404).json({ error: "Field not found" });
+    }
+    res.json(field);
+  });
+
+  app.delete("/api/fields/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const success = await storage.deleteDynamicField(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: "Field not found" });
+    }
+    res.json({ success: true });
+  });
+
+  app.post("/api/boards/dynamic/:boardId/fields/reorder", authMiddleware, async (req: AuthRequest, res) => {
+    const fieldOrders = z.array(z.object({
+      id: z.string(),
+      sortIndex: z.number()
+    })).parse(req.body);
+    
+    await storage.reorderDynamicFields(req.params.boardId, fieldOrders);
+    res.json({ success: true });
+  });
+
+  // Dynamic Items API
+  app.get("/api/boards/dynamic/:boardId/items", authMiddleware, async (req: AuthRequest, res) => {
+    const items = await storage.getDynamicItemsByBoard(req.params.boardId);
+    res.json(items);
+  });
+
+  app.post("/api/boards/dynamic/:boardId/items", authMiddleware, async (req: AuthRequest, res) => {
+    const data = insertDynamicItemSchema.parse({ ...req.body, boardId: req.params.boardId });
+    const item = await storage.createDynamicItem(data);
+    res.json(item);
+  });
+
+  app.patch("/api/items/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const item = await storage.updateDynamicItem(req.params.id, req.body);
+    if (!item) {
+      return res.status(404).json({ error: "Item not found" });
+    }
+    res.json(item);
+  });
+
+  app.delete("/api/items/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const success = await storage.deleteDynamicItem(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: "Item not found" });
+    }
+    res.json({ success: true });
+  });
+
+  // Dynamic Field Values API
+  app.get("/api/items/:itemId/values", authMiddleware, async (req: AuthRequest, res) => {
+    const values = await storage.getDynamicFieldValuesByItem(req.params.itemId);
+    res.json(values);
+  });
+
+  app.post("/api/items/:itemId/values", authMiddleware, async (req: AuthRequest, res) => {
+    const data = insertDynamicFieldValueSchema.parse({ ...req.body, itemId: req.params.itemId });
+    const value = await storage.setDynamicFieldValue(data);
+    res.json(value);
+  });
+
+  app.delete("/api/items/:itemId/values/:fieldId", authMiddleware, async (req: AuthRequest, res) => {
+    const success = await storage.deleteDynamicFieldValue(req.params.itemId, req.params.fieldId);
+    if (!success) {
+      return res.status(404).json({ error: "Value not found" });
+    }
+    res.json({ success: true });
   });
 
   // Mount Council routes (admin only)

@@ -1845,6 +1845,166 @@ export class DatabaseStorage implements IStorage {
     
     return query;
   }
+
+  // Dynamic Boards (Phase 12.0)
+  async getAllDynamicBoards(ownerId: string): Promise<DynamicBoard[]> {
+    return db.select().from(schema.dynamicBoards)
+      .where(eq(schema.dynamicBoards.ownerId, ownerId))
+      .orderBy(desc(schema.dynamicBoards.createdAt));
+  }
+
+  async getDynamicBoard(id: string, ownerId: string): Promise<DynamicBoard | undefined> {
+    const [board] = await db.select().from(schema.dynamicBoards)
+      .where(and(
+        eq(schema.dynamicBoards.id, id),
+        eq(schema.dynamicBoards.ownerId, ownerId)
+      ));
+    return board;
+  }
+
+  async createDynamicBoard(insertBoard: InsertDynamicBoard): Promise<DynamicBoard> {
+    const [board] = await db.insert(schema.dynamicBoards).values(insertBoard).returning();
+    return board;
+  }
+
+  async updateDynamicBoard(id: string, ownerId: string, boardData: Partial<InsertDynamicBoard>): Promise<DynamicBoard | undefined> {
+    const [board] = await db.update(schema.dynamicBoards)
+      .set(boardData)
+      .where(and(
+        eq(schema.dynamicBoards.id, id),
+        eq(schema.dynamicBoards.ownerId, ownerId)
+      ))
+      .returning();
+    return board;
+  }
+
+  async deleteDynamicBoard(id: string, ownerId: string): Promise<boolean> {
+    const result = await db.delete(schema.dynamicBoards)
+      .where(and(
+        eq(schema.dynamicBoards.id, id),
+        eq(schema.dynamicBoards.ownerId, ownerId)
+      ));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Dynamic Fields
+  async getDynamicFieldsByBoard(boardId: string): Promise<DynamicField[]> {
+    return db.select().from(schema.dynamicFields)
+      .where(eq(schema.dynamicFields.boardId, boardId))
+      .orderBy(schema.dynamicFields.sortIndex);
+  }
+
+  async getDynamicField(id: string): Promise<DynamicField | undefined> {
+    const [field] = await db.select().from(schema.dynamicFields)
+      .where(eq(schema.dynamicFields.id, id));
+    return field;
+  }
+
+  async createDynamicField(insertField: InsertDynamicField): Promise<DynamicField> {
+    const [field] = await db.insert(schema.dynamicFields).values(insertField).returning();
+    return field;
+  }
+
+  async updateDynamicField(id: string, fieldData: Partial<InsertDynamicField>): Promise<DynamicField | undefined> {
+    const [field] = await db.update(schema.dynamicFields)
+      .set(fieldData)
+      .where(eq(schema.dynamicFields.id, id))
+      .returning();
+    return field;
+  }
+
+  async deleteDynamicField(id: string): Promise<boolean> {
+    const result = await db.delete(schema.dynamicFields)
+      .where(eq(schema.dynamicFields.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async reorderDynamicFields(boardId: string, fieldOrders: { id: string; sortIndex: number }[]): Promise<void> {
+    for (const { id, sortIndex } of fieldOrders) {
+      await db.update(schema.dynamicFields)
+        .set({ sortIndex })
+        .where(and(
+          eq(schema.dynamicFields.id, id),
+          eq(schema.dynamicFields.boardId, boardId)
+        ));
+    }
+  }
+
+  // Dynamic Items
+  async getDynamicItemsByBoard(boardId: string): Promise<DynamicItem[]> {
+    return db.select().from(schema.dynamicItems)
+      .where(eq(schema.dynamicItems.boardId, boardId))
+      .orderBy(desc(schema.dynamicItems.createdAt));
+  }
+
+  async getDynamicItem(id: string): Promise<DynamicItem | undefined> {
+    const [item] = await db.select().from(schema.dynamicItems)
+      .where(eq(schema.dynamicItems.id, id));
+    return item;
+  }
+
+  async createDynamicItem(insertItem: InsertDynamicItem): Promise<DynamicItem> {
+    const [item] = await db.insert(schema.dynamicItems).values(insertItem).returning();
+    return item;
+  }
+
+  async updateDynamicItem(id: string, itemData: Partial<InsertDynamicItem>): Promise<DynamicItem | undefined> {
+    const [item] = await db.update(schema.dynamicItems)
+      .set(itemData)
+      .where(eq(schema.dynamicItems.id, id))
+      .returning();
+    return item;
+  }
+
+  async deleteDynamicItem(id: string): Promise<boolean> {
+    const result = await db.delete(schema.dynamicItems)
+      .where(eq(schema.dynamicItems.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Dynamic Field Values
+  async getDynamicFieldValuesByItem(itemId: string): Promise<DynamicFieldValue[]> {
+    return db.select().from(schema.dynamicFieldValues)
+      .where(eq(schema.dynamicFieldValues.itemId, itemId));
+  }
+
+  async getDynamicFieldValue(itemId: string, fieldId: string): Promise<DynamicFieldValue | undefined> {
+    const [value] = await db.select().from(schema.dynamicFieldValues)
+      .where(and(
+        eq(schema.dynamicFieldValues.itemId, itemId),
+        eq(schema.dynamicFieldValues.fieldId, fieldId)
+      ));
+    return value;
+  }
+
+  async setDynamicFieldValue(insertValue: InsertDynamicFieldValue): Promise<DynamicFieldValue> {
+    const existing = await this.getDynamicFieldValue(insertValue.itemId, insertValue.fieldId);
+    
+    if (existing) {
+      const [updated] = await db.update(schema.dynamicFieldValues)
+        .set({ value: insertValue.value })
+        .where(and(
+          eq(schema.dynamicFieldValues.itemId, insertValue.itemId),
+          eq(schema.dynamicFieldValues.fieldId, insertValue.fieldId)
+        ))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(schema.dynamicFieldValues)
+        .values(insertValue)
+        .returning();
+      return created;
+    }
+  }
+
+  async deleteDynamicFieldValue(itemId: string, fieldId: string): Promise<boolean> {
+    const result = await db.delete(schema.dynamicFieldValues)
+      .where(and(
+        eq(schema.dynamicFieldValues.itemId, itemId),
+        eq(schema.dynamicFieldValues.fieldId, fieldId)
+      ));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
 }
 
 export const storage = new DatabaseStorage();
