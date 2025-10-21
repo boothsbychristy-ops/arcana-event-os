@@ -45,6 +45,10 @@ import type {
   AnalyticsEvent, InsertAnalyticsEvent,
   MirrorWallet, InsertMirrorWallet,
   MirrorTx, InsertMirrorTx,
+  DynamicBoard, InsertDynamicBoard,
+  DynamicField, InsertDynamicField,
+  DynamicItem, InsertDynamicItem,
+  DynamicFieldValue, InsertDynamicFieldValue,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -323,6 +327,34 @@ export interface IStorage {
   // System Logs
   createSystemLog(log: InsertSystemLog): Promise<SystemLog>;
   getSystemLogs(source?: string, limit?: number): Promise<SystemLog[]>;
+  
+  // Dynamic Boards (Phase 12.0)
+  getAllDynamicBoards(ownerId: string): Promise<DynamicBoard[]>;
+  getDynamicBoard(id: string, ownerId: string): Promise<DynamicBoard | undefined>;
+  createDynamicBoard(board: InsertDynamicBoard): Promise<DynamicBoard>;
+  updateDynamicBoard(id: string, ownerId: string, board: Partial<InsertDynamicBoard>): Promise<DynamicBoard | undefined>;
+  deleteDynamicBoard(id: string, ownerId: string): Promise<boolean>;
+  
+  // Dynamic Fields
+  getDynamicFieldsByBoard(boardId: string): Promise<DynamicField[]>;
+  getDynamicField(id: string): Promise<DynamicField | undefined>;
+  createDynamicField(field: InsertDynamicField): Promise<DynamicField>;
+  updateDynamicField(id: string, field: Partial<InsertDynamicField>): Promise<DynamicField | undefined>;
+  deleteDynamicField(id: string): Promise<boolean>;
+  reorderDynamicFields(boardId: string, fieldOrders: { id: string; sortIndex: number }[]): Promise<void>;
+  
+  // Dynamic Items
+  getDynamicItemsByBoard(boardId: string): Promise<DynamicItem[]>;
+  getDynamicItem(id: string): Promise<DynamicItem | undefined>;
+  createDynamicItem(item: InsertDynamicItem): Promise<DynamicItem>;
+  updateDynamicItem(id: string, item: Partial<InsertDynamicItem>): Promise<DynamicItem | undefined>;
+  deleteDynamicItem(id: string): Promise<boolean>;
+  
+  // Dynamic Field Values
+  getDynamicFieldValuesByItem(itemId: string): Promise<DynamicFieldValue[]>;
+  getDynamicFieldValue(itemId: string, fieldId: string): Promise<DynamicFieldValue | undefined>;
+  setDynamicFieldValue(value: InsertDynamicFieldValue): Promise<DynamicFieldValue>;
+  deleteDynamicFieldValue(itemId: string, fieldId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {

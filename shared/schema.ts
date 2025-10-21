@@ -337,6 +337,60 @@ export const boardMembers = pgTable("board_members", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ============================================================================
+// PHASE 12.0: Dynamic Boards System (Monday.com-style flexible schema)
+// ============================================================================
+
+// Dynamic Boards - flexible board containers
+export const dynamicBoards = pgTable("dynamic_boards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  icon: text("icon"), // emoji or icon name
+  color: text("color"), // hex color for board theme
+  isTemplate: boolean("is_template").notNull().default(false),
+  sortIndex: integer("sort_index").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Dynamic Fields - custom columns with flexible types
+export const dynamicFields = pgTable("dynamic_fields", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").references(() => dynamicBoards.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // text, number, date, status, dropdown, checkbox, user, email, phone, url
+  description: text("description"),
+  config: jsonb("config").default({}), // type-specific config: { options: [], format: '', etc. }
+  isRequired: boolean("is_required").notNull().default(false),
+  sortIndex: integer("sort_index").notNull().default(0),
+  width: integer("width"), // column width in pixels
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Dynamic Items - flexible rows/records
+export const dynamicItems = pgTable("dynamic_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").references(() => dynamicBoards.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(), // primary label/title
+  sortIndex: integer("sort_index").notNull().default(0),
+  createdBy: varchar("created_by").references(() => users.id).notNull(),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Dynamic Field Values - EAV pattern for flexible data storage
+export const dynamicFieldValues = pgTable("dynamic_field_values", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  itemId: varchar("item_id").references(() => dynamicItems.id, { onDelete: "cascade" }).notNull(),
+  fieldId: varchar("field_id").references(() => dynamicFields.id, { onDelete: "cascade" }).notNull(),
+  value: text("value"), // stored as text, parsed by field type
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Message threads
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
