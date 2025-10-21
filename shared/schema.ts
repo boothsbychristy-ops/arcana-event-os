@@ -391,6 +391,38 @@ export const dynamicFieldValues = pgTable("dynamic_field_values", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// ============================================================================
+// PHASE 13.0: No-Code Automations Engine for Dynamic Boards
+// ============================================================================
+
+// Board Automation Rules - trigger-action automation rules (Monday.com / Zapier style)
+export const boardAutomationRules = pgTable("board_automation_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").references(() => dynamicBoards.id, { onDelete: "cascade" }).notNull(),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(), // user-friendly rule name
+  description: text("description"),
+  triggerType: text("trigger_type").notNull(), // on_field_change, on_date_arrive, on_item_create, cron_schedule
+  triggerConfig: jsonb("trigger_config").default({}), // e.g. {"field": "status", "operator": "=", "value": "Done"}
+  actionType: text("action_type").notNull(), // notify_user, set_field_value, create_item, send_email, call_webhook
+  actionConfig: jsonb("action_config").default({}), // e.g. {"user_id": 42} or {"field": "status", "value": "Ready"}
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Board Automation Logs - execution history for audit and debugging
+export const boardAutomationLogs = pgTable("board_automation_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ruleId: varchar("rule_id").references(() => boardAutomationRules.id, { onDelete: "cascade" }).notNull(),
+  triggeredAt: timestamp("triggered_at").notNull().defaultNow(),
+  actionType: text("action_type").notNull(),
+  actionStatus: text("action_status").notNull().default("success"), // success, failed, skipped
+  error: text("error"), // error message if failed
+  details: jsonb("details").default({}), // context like item_id, field changes, etc.
+});
+
 // Message threads
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
