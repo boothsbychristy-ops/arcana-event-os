@@ -1,0 +1,139 @@
+/* Accessibility Enhancements for Rainbow CRM */
+
+/* Focus Rings - High contrast visible indicators */
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 2px;
+  z-index: 1;
+}
+
+/* Skip to main content link */
+.skip-to-main {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  padding: 8px;
+  text-decoration: none;
+  z-index: 100;
+  border: 2px solid hsl(var(--border));
+}
+
+.skip-to-main:focus {
+  top: 0;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  .animate-ping {
+    animation: none !important;
+  }
+  
+  .animate-spin {
+    animation: none !important;
+  }
+  
+  .animate-pulse {
+    animation: none !important;
+  }
+  
+  .animate-bounce {
+    animation: none !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  * {
+    border-width: 2px !important;
+  }
+  
+  button,
+  a,
+  [role="button"] {
+    border: 2px solid currentColor !important;
+  }
+}
+
+/* Keyboard navigation indicators */
+.keyboard-navigation *:focus {
+  outline: 3px solid hsl(var(--primary)) !important;
+  outline-offset: 2px !important;
+}
+
+/* Screen reader only content */
+.sr-only:not(:focus):not(:active) {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* Interactive element minimum sizes for touch/click targets */
+button,
+a,
+[role="button"],
+[tabindex="0"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Ensure interactive elements in cards maintain proper sizes */
+.card button:not([size="icon"]),
+.card a:not(.icon-link) {
+  padding: 0.5rem 1rem;
+}
+
+/* Focus visible for form controls */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-color: hsl(var(--ring));
+}
+
+/* ARIA live regions */
+[aria-live="polite"],
+[aria-live="assertive"] {
+  position: relative;
+}
+
+/* Ensure proper color contrast for status indicators */
+[aria-label*="error"],
+[aria-label*="Error"],
+.text-destructive {
+  color: hsl(var(--destructive-foreground));
+  background-color: hsl(var(--destructive));
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.125rem;
+}
+
+/* Loading states should be announced */
+[aria-busy="true"]::after {
+  content: " (loading)";
+  font-size: 0.875rem;
+  font-style: italic;
+}
