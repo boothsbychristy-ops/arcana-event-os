@@ -5,8 +5,26 @@ import { eq } from "drizzle-orm";
 import { Errors } from "../errors";
 import { asyncHandler } from "../middleware/errorHandler";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
+
+// Per-token rate limiter to prevent scraping
+const publicLinkRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // 30 requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: {
+      code: "RATE_LIMITED",
+      message: "Too many requests, please try again later"
+    }
+  }
+});
 
 export const approvalsPublicRouter = Router();
+
+// Apply rate limiting to all public approval routes
+approvalsPublicRouter.use(publicLinkRateLimit);
 
 // Get approval by public share token
 approvalsPublicRouter.get("/:token", asyncHandler(async (req, res) => {
