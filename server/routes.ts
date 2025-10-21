@@ -1857,9 +1857,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Mount public approval routes (no auth required)
-  const { approvalsPublicRouter } = await import("./routes/approvals.public");
-  app.use("/api/approvals/public", approvalsPublicRouter);
+  // Public approval routes are now mounted in index.ts before auth middleware
+  // to ensure they bypass authentication requirements
 
   // AI Background Generator
   app.post("/api/ai/background", authMiddleware, async (req: AuthRequest, res) => {

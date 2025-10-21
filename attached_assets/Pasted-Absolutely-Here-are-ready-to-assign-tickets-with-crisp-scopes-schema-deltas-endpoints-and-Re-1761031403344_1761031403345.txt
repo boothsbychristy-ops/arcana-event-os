@@ -1,0 +1,418 @@
+Absolutely. Here are **ready-to-assign tickets** with crisp scopes, schema deltas, endpoints, and React stubs. They’re grouped by Phase 11.3 “Delight & Accessibility Blitz” so the team can start sprinting now.
+
+---
+
+# Phase 11.3 — Delight & Accessibility Blitz (2 weeks)
+
+## Epic A — Proof Experience 2.0
+
+### A1 — Add Pin-able Comments on Proofs (backend)
+
+**Summary:** Store pin coordinates, zoom, and structured reasons.
+
+* **Schema delta (SQL)**
+
+  ```sql
+  alter table proof_comments
+    add column if not exists x numeric,
+    add column if not exists y numeric,
+    add column if not exists zoom numeric,
+    add column if not exists reason text check (reason in ('logo','color','text','other')) default 'other';
+  ```
+* **API**
+
+  * `POST /api/proofs/:id/comments` `{ message, x?, y?, zoom?, reason? }`
+* **Acceptance**
+
+  * Saving with or without coords works.
+  * Reason validates to enum; invalid returns 400.
+
+---
+
+### A2 — Proof Viewer: Pin UI + Side Panel (frontend)
+
+**Summary:** Click-to-pin, numbered markers, list on the right.
+
+* **Component stub** `client/src/components/proof/PinLayer.tsx`
+
+  ```tsx
+  export function PinLayer({ imageRef, pins, onAdd }:{ imageRef: React.RefObject<HTMLImageElement>, pins:any[], onAdd:(p)=>void }) {
+    // translate clientX/Y -> image coords; draw absolutely positioned <button> with index
+    return null;
+  }
+  ```
+* **Page integration** `pages/proof/[token].tsx`
+
+  * Render image within a relatively positioned container.
+  * On click → open small form (reason + comment) → `POST /comments`.
+* **Acceptance**
+
+  * Add, list, and focus pins (tab selects next pin).
+  * Pins maintain correct position on resize.
+
+---
+
+### A3 — Versioning + Compare (backend)
+
+**Summary:** Track proof lineage & version.
+
+* **Schema delta**
+
+  ```sql
+  alter table proofs
+    add column if not exists version int default 1,
+    add column if not exists prev_proof_id uuid references proofs(id);
+  ```
+* **API**
+
+  * `POST /api/proofs/:id/fork` → creates new proof `{ version: old.version+1, prev_proof_id: old.id }`
+* **Acceptance**
+
+  * New proof references previous; analytics logs `proof_version_forked`.
+
+---
+
+### A4 — Version Compare Slider (frontend)
+
+**Summary:** Compare vN vs vN-1 with slider or split view.
+
+* **Component stub** `components/proof/Compare.tsx`
+
+  ```tsx
+  export function Compare({ leftUrl, rightUrl }:{leftUrl:string; rightUrl:string}) {
+    // simple CSS overlay + input range for wipe; or side-by-side toggle
+    return null;
+  }
+  ```
+* **Acceptance**
+
+  * Smooth drag; toggling preserves zoom.
+  * Works on mobile with touch.
+
+---
+
+### A5 — Share Link Expiry + View Receipts (backend)
+
+**Summary:** Expiring links and basic analytics.
+
+* **Schema delta**
+
+  ```sql
+  alter table approvals
+    add column if not exists share_expires_at timestamptz,
+    add column if not exists views_count int default 0,
+    add column if not exists last_viewed_at timestamptz;
+  ```
+* **API**
+
+  * `PATCH /api/approvals/:id/share` `{ expiresIn: '24h' | '7d' | iso8601 }`
+  * Public GET increments counters if not expired.
+* **Server logic (pseudo)**
+
+  ```ts
+  if (row.share_expires_at && new Date() > row.share_expires_at) return 410;
+  await db.execute(sql`update approvals set views_count = views_count+1, last_viewed_at = now() where id=${row.id}`);
+  ```
+* **Acceptance**
+
+  * Expired links return 410 JSON `{ error: 'LINK_EXPIRED' }`.
+  * Council shows `views_count` and `last_viewed_at`.
+
+---
+
+### A6 — Structured Reasons UI (frontend)
+
+**Summary:** Chips + textarea.
+
+* **UI**
+
+  * Chips: Logo / Color / Text / Other.
+  * Post body includes `reason`.
+* **Acceptance**
+
+  * Selected reason persists into comment list.
+  * Included in email notifications (if enabled).
+
+---
+
+## Epic B — Zero-State + Optimistic UI
+
+### B1 — Zero-State Teaching Cards (frontend)
+
+**Summary:** Empty Pipeline/Assets/Approvals show examples + mini-tour.
+
+* **Component** `components/zerostate/BoardZero.tsx`
+
+  ```tsx
+  export function BoardZero({onCreate}:{onCreate:()=>void}) { /* CTA + 3-step hints */ return null; }
+  ```
+* **Storage**
+
+  * `localStorage['tour:dismissed'] = true`
+* **Acceptance**
+
+  * Appears only when list empty; stays dismissed once closed.
+
+---
+
+### B2 — Optimistic CRUD With Rollback (frontend)
+
+**Summary:** Global pattern for instant feedback.
+
+* **Util** `lib/optimistic.ts`
+
+  ```ts
+  export function optimistic<T>(qc, key, updater, rollbackData) {
+    const prev = qc.getQueryData(key);
+    qc.setQueryData(key, updater(prev));
+    return () => qc.setQueryData(key, rollbackData ?? prev);
+  }
+  ```
+* **Usage**
+
+  * Wrap mutations on clients/events/projects/assets.
+* **Acceptance**
+
+  * Offline simulation: UI updates instantly, rolls back on 4xx/5xx.
+
+---
+
+### B3 — Undo Delete (soft-delete, backend + frontend)
+
+**Summary:** Soft-delete + delayed purge.
+
+* **Schema delta**
+
+  ```sql
+  alter table assets add column if not exists deleted_at timestamptz;
+  ```
+* **API**
+
+  * `DELETE /api/assets/:id?soft=true` → sets `deleted_at=now()`
+  * `POST /api/assets/:id/restore`
+* **Job**
+
+  * Cron purges `deleted_at < now()- interval '1 day'`.
+* **Frontend**
+
+  * Toast “Asset deleted — Undo (6s)”.
+* **Acceptance**
+
+  * Undo within 6s restores item; after 24h it’s gone.
+
+---
+
+## Epic C — Media Performance & Safety
+
+### C1 — Derivative Thumbnails Worker (backend)
+
+**Summary:** Generate 320/640/1280 + blurhash.
+
+* **Schema delta**
+
+  ```sql
+  alter table assets add column if not exists derivatives jsonb default '{}'::jsonb;
+  ```
+* **Worker**
+
+  * On asset upload → use sharp to produce sizes; update `derivatives`.
+* **Acceptance**
+
+  * New uploads show `derivatives: {320:'...',640:'...',1280:'...'}`
+  * Client uses `srcset` to pick size.
+
+---
+
+### C2 — Watermarked Public Proofs (backend)
+
+**Summary:** Downscale + diagonal watermark.
+
+* **Tenant settings (SQL)**
+
+  ```sql
+  create table if not exists tenant_settings (
+    tenant_id uuid primary key,
+    watermark_enabled boolean default true,
+    watermark_text text default 'Proof — Rainbow CRM'
+  );
+  ```
+* **Worker**
+
+  * Generate watermarked copy for `proofs.image_url_public`.
+* **Acceptance**
+
+  * Public route serves watermarked image; auth route serves original.
+
+---
+
+### C3 — Signed URLs + CDN (backend + frontend)
+
+**Summary:** Private assets via signed URLs, public via CDN.
+
+* **Backend**
+
+  * `GET /api/assets/:id/signed` → returns short-lived URL.
+* **Frontend**
+
+  * Use signed URLs for in-app high-res; `srcset` for thumbs.
+* **Acceptance**
+
+  * Revoked access invalidates URL immediately.
+
+---
+
+## Epic D — Accessibility (WCAG 2.1 AA)
+
+### D1 — Contrast Tokens & Reduced Motion (frontend)
+
+**Summary:** Adjust palette + motion media query.
+
+* **Tailwind**
+
+  * Ensure contrast ratios ≥ 4.5:1 for text on dark.
+* **CSS**
+
+  ```css
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  ```
+* **Acceptance**
+
+  * Axe: 0 critical issues on top 6 pages.
+
+---
+
+### D2 — Keyboard-First Proof Flow (frontend)
+
+**Summary:** Full approval without mouse.
+
+* **Features**
+
+  * Focus rings, tab order, Enter-to-submit for comment.
+  * Escape closes modals.
+* **Acceptance**
+
+  * Keyboard-only user can: open proof, add pin comment, approve.
+
+---
+
+### D3 — Alt Text + Auto-Alt Seed (backend + frontend)
+
+**Summary:** Alt text field; seed from Reverse Vision if empty.
+
+* **Schema delta**
+
+  ```sql
+  alter table assets add column if not exists alt text;
+  ```
+* **Server logic**
+
+  * On reverse-vision response, if `assets.alt is null`, set `alt = analysis.summary`.
+* **Acceptance**
+
+  * Newly analyzed assets get editable alt pre-filled.
+
+---
+
+## Epic E — UX Metrics in Council
+
+### E1 — KPI Materialization (backend)
+
+**Summary:** Daily rollups for UX metrics.
+
+* **SQL views**
+
+  ```sql
+  create or replace view council_kpis_last30 as
+  with first_value as (
+    select owner_id, min(created_at) as first_approval_at
+    from analytics_events
+    where event_type = 'proof_approved'
+    group by owner_id
+  ),
+  signup as (
+    select id as user_id, created_at as signup_at from profiles
+  )
+  select
+    date_trunc('day', e.created_at) as day,
+    -- time-to-first-value proxy
+    avg(extract(epoch from (fv.first_approval_at - s.signup_at))/3600) filter (where fv.first_approval_at is not null) as ttfv_hours,
+    -- approval turnaround (median hours)
+    percentile_cont(0.5) within group (order by (e.meta->>'turnaround_hours')::numeric) filter (where e.event_type='proof_approved') as approval_median_hours,
+    -- rework rate
+    (count(*) filter (where e.event_type='proof_changes_requested')::numeric) /
+    nullif(count(*) filter (where e.event_type in ('proof_approved','proof_changes_requested'))::numeric,0) as rework_rate
+  from analytics_events e
+  left join first_value fv on fv.owner_id = e.owner_id
+  left join signup s on s.user_id = e.owner_id
+  where e.created_at >= now() - interval '30 days'
+  group by 1
+  order by 1;
+  ```
+* **Acceptance**
+
+  * View returns rows for last 30 days; null-safe.
+
+---
+
+### E2 — Council KPI Charts (frontend)
+
+**Summary:** Add KPI section to Council.
+
+* **UI**
+
+  * Line charts for TTFV (hours), Approval Median (hours), Rework Rate (%).
+* **Acceptance**
+
+  * Charts render; tooltips show exact values.
+
+---
+
+### E3 — KPI Alert Thresholds (backend)
+
+**Summary:** Trigger email when thresholds crossed.
+
+* **Table**
+
+  ```sql
+  create table if not exists council_alerts (
+    id uuid primary key default gen_random_uuid(),
+    key text unique,          -- 'approval_median_hours'
+    threshold numeric not null,
+    direction text check (direction in ('above','below')) not null,
+    enabled boolean default true
+  );
+  ```
+* **Cron**
+
+  * Nightly: evaluate `council_kpis_last30` latest row vs thresholds; email admins on breach.
+* **Acceptance**
+
+  * Toggling alert in DB affects job; sample email lands.
+
+---
+
+## Bonus tiny tickets (fit anywhere)
+
+### Z1 — “Copy Proof Link” with Expiry Dropdown
+
+* Button with chevron → 24h / 7d / custom → copies full URL.
+
+### Z2 — Humanized timestamps + exact on hover
+
+* Use dayjs: “yesterday, 2:41 PM”; title attribute shows ISO.
+
+### Z3 — Keyboard shortcuts
+
+* Global: `/` focus search, `N` new client, `G` then `A` go Assets.
+
+---
+
+## Hand-off notes
+
+* **Migrations:** batch all SQL into `/migrations/11_3_delight.sql` (idempotent `if not exists`).
+* **Feature flags:** `DELIGHT_PINS`, `DELIGHT_COMPARE`, `DELIGHT_SIGNED_URLS`—read from env; default `true` on staging.
+* **QA checklist:** add these to your existing 10.9 suite; verify on mobile & desktop.
+
+---
+
+If you want, I’ll generate a **single SQL migration file** and **three starter React components** (`PinLayer`, `Compare`, `ZeroStateCard`) in a canvas so your devs can paste them directly.

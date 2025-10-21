@@ -70,6 +70,10 @@ app.use('/uploads', uploadsStatic);
 // Mount asset routes
 app.use(assetRoutes);
 
+// Mount public approval routes BEFORE auth middleware
+import { approvalsPublicRouter } from "./routes/approvals.public";
+app.use("/api/approvals/public", approvalsPublicRouter);
+
 // Security: Safe metadata logging (no PII in logs)
 app.use((req, res, next) => {
   const start = Date.now();
@@ -88,14 +92,38 @@ const PUBLIC_ROUTES = new Set([
   "/api/auth/signup",
   "/api/auth/me",
   "/api/public/register",
-  "/api/public/staff-apply"
+  "/api/public/staff-apply",
+  "/api/health"
 ]);
 
+// Patterns for public routes that need wildcard matching
+const PUBLIC_ROUTE_PATTERNS = [
+  /^\/api\/approvals\/public\/.*/,
+  /^\/api\/assets\/public\/.*/
+];
+
 app.use((req, res, next) => {
-  if (req.path.startsWith("/api/") && !PUBLIC_ROUTES.has(req.path)) {
-    return authMiddleware(req as any, res, next);
+  // Skip auth for non-API routes
+  if (!req.path.startsWith("/api/")) {
+    return next();
   }
-  next();
+  
+  // Check exact matches
+  if (PUBLIC_ROUTES.has(req.path)) {
+    console.log(`[Auth] Skipping auth for exact match: ${req.path}`);
+    return next();
+  }
+  
+  // Check pattern matches
+  const isPublicPattern = PUBLIC_ROUTE_PATTERNS.some(pattern => pattern.test(req.path));
+  if (isPublicPattern) {
+    console.log(`[Auth] Skipping auth for pattern match: ${req.path}`);
+    return next();
+  }
+  
+  // Otherwise require auth
+  console.log(`[Auth] Requiring auth for: ${req.path}`);
+  return authMiddleware(req as any, res, next);
 });
 
 (async () => {

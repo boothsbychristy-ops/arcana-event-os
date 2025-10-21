@@ -1,0 +1,249 @@
+Heck yes. I’ve folded all those “make-it-feel-premium” details straight into the Rainbow CRM roadmap, with crisp tickets, acceptance criteria, and a short, momentum-friendly sequence. This keeps the council/coins work queued up, but we’ll nail the little things first.
+
+# 🌈 Rainbow CRM Roadmap — Delight & Usability Track
+
+## Phase 11.3 — “Delight & Accessibility Blitz” (2 weeks)
+
+**Goal:** Make core flows feel obvious, fast, and trustworthy.
+
+### Epic A — Proof Experience 2.0
+
+**User stories**
+
+* As a client, I can point to changes on an image instead of writing a paragraph.
+* As an operator, I can send a link that expires and see if it was viewed.
+
+**Tickets**
+
+1. Image pins & callouts
+
+* FE: click-to-pin markers with numbered badges; side panel lists pins.
+* Data: `proof_comments` gets `{x, y, zoom, type}` optional fields.
+* QA: pins persist across refresh; keyboard accessibility (tab through pins).
+
+2. Version compare
+
+* FE: “Compare v2 ↔ v3” slider or side-by-side with zoom; preload both images.
+* Data: `proofs.version` int; keep `prev_proof_id` for lineage.
+* QA: switching versions doesn’t reset zoom/pan.
+
+3. Structured reasons + free text
+
+* FE: radio chips (Logo, Color, Text) + textarea.
+* Data: `proof_comments.reason enum('logo','color','text','other')`.
+* QA: included in email notifications and analytics events.
+
+4. Link expiry + view receipts
+
+* BE: `approvals.share_expires_at` nullable, `approvals.views_count`, `last_viewed_at`.
+* FE: “Copy link” with dropdown: 24h / 7d / custom calendar.
+* QA: expired links return friendly page; council shows views over time.
+
+**Acceptance criteria**
+
+* Clients can pin at least 10 notes, each with reason.
+* Operators can set expiry; dashboard shows “Viewed X times, last seen <time>”.
+
+---
+
+### Epic B — Zero-State + Optimistic UI
+
+**Tickets**
+
+1. Zero-states with mini-tours
+
+* FE: pipeline/assets/approvals show sample cards + 30s “how this works” tour (dismissible).
+* QA: tour does not reappear once dismissed (per-user local storage).
+
+2. Optimistic mutations everywhere
+
+* FE: clients/events/projects/assets create/update/delete are instantaneous with rollback on error.
+* QA: simulate offline → optimistic UI, then error toast + auto-undo.
+
+3. Undo for destructive actions
+
+* FE: toast with “Undo” for 6s; store pending deletion in memory.
+* BE: deletion delayed by 6s job or soft-delete flag.
+* QA: undo restores item perfectly.
+
+**Acceptance criteria**
+
+* P95 perceived response < 150ms for CRUD (measured by React profiler timeline).
+* Undo works across assets, clients, projects.
+
+---
+
+### Epic C — Media Performance & Safety
+
+**Tickets**
+
+1. Multi-size thumbnails
+
+* BE: background worker generates 320/640/1280 for images; store in `assets.derivatives` JSON.
+* FE: responsive `srcset` + blur-up placeholder.
+* QA: mobile loads 320/640 variants; full-res loads only on zoom.
+
+2. Signed URLs + CDN
+
+* BE: switch public proofs to watermarked, downscaled CDN; private items via signed URLs (5–15 min TTL).
+* QA: revoke access = link breaks immediately.
+
+3. Watermark previews
+
+* Worker adds subtle diagonal watermark “Proof — Rainbow CRM”; toggle per-tenant.
+* QA: not applied to final deliverables.
+
+**Acceptance criteria**
+
+* Median image time-to-first-paint < 400ms on 4G.
+* All public proofs are watermarked & downscaled.
+
+---
+
+### Epic D — Accessibility to WCAG 2.1 AA
+
+**Tickets**
+
+1. Contrast + motion reduction
+
+* Design tokens updated; prefers-reduced-motion disables parallax/float.
+
+2. Keyboard support
+
+* Proof pins, modals, and tours operable without mouse; visible focus ring.
+
+3. Alt text + auto-alt
+
+* Add alt field to assets; seed from Reverse Vision analysis when empty.
+
+**Acceptance criteria**
+
+* Axe DevTools: 0 critical issues on top 6 pages.
+* Keyboard-only run: full approval flow possible.
+
+---
+
+### Epic E — UX Metrics in Council
+
+**Tickets**
+
+1. KPIs
+
+* Track and visualize: Time-to-first-value (signup → first approval), Approval turnaround, Rework rate, Share→View conversion, P95 interactive time.
+* Add `council_kpis` view + charts.
+
+2. Alerts
+
+* Threshold toggles (e.g., approval turnaround > 72h) → email to admin.
+
+**Acceptance criteria**
+
+* Council shows last 30 days for all KPIs; alert fires when thresholds crossed.
+
+---
+
+## Phase 11.4 — “Find & Focus” (3–4 weeks)
+
+**Goal:** Fast triage and retrieval.
+
+### Epic F — Work Queue (Unified Inbox)
+
+* One table combining pending approvals, overdue tasks, unpaid invoices, “awaiting assets”.
+* Filters: mine / team / by client.
+* Bulk actions: complete, reassign, remind.
+
+### Epic G — Semantic Search
+
+* Embedding index over clients/events/assets/comments.
+* Query examples: “pink gala overlay approved last month”, “St. Jude color feedback”.
+* FE: single search bar with smart facets; keyboard shortcut `/`.
+
+**Acceptance criteria**
+
+* Query returns <1s for indexed content; top 3 results relevant for seeded dataset.
+
+---
+
+## Phase 11.5 — “On-Site Magic” (3–4 weeks)
+
+**Goal:** Make field ops feel effortless.
+
+### Epic H — Mobile Capture & QR
+
+* Camera upload (offline-safe), auto-tag “venue-reference”.
+* QR generator for proofs and event packets; scanner opens correct context in the app.
+* Push notifications: approvals & changes with next-action suggestions.
+
+**Acceptance criteria**
+
+* 95% uploads succeed within 10 minutes of capture (retry logic).
+* QR flow works on iOS & Android with spotty LTE.
+
+---
+
+## Phase 12.0 — Monetization Scaffold (2–3 weeks, after 11.3–11.5)
+
+* Square/Stripe sandbox + pricing table.
+* Buy Coins modal + receipt emails.
+* Council → Pricing tab + revenue charts.
+* Guardrails: 402 on insufficient balance; graceful UI fallback.
+
+---
+
+# 📋 Engineering Plan of Record (POR)
+
+**Week 1–2 (11.3):**
+
+* Proof pins, version compare, structured reasons, link expiry/receipts.
+* Zero-states + optimistic CRUD + undo.
+* Start thumbnails + watermark worker.
+* Accessibility pass kickoff; Council KPI wiring.
+
+**Week 3–5 (11.4):**
+
+* Unified Work Queue.
+* Semantic search index + UI facets.
+* Continue perf: signed URLs + CDN live.
+
+**Week 6–8 (11.5):**
+
+* Mobile capture + QR + push.
+* Reliability hardening for weak networks.
+
+**Then 12.0:** Monetization.
+
+---
+
+# ✅ Definition of Done (for this track)
+
+* Any public share shows expiry + last viewed; proofs are watermarked & downscaled.
+* Approvals can be completed with pins and structured reasons, keyboard-only.
+* Pipeline/Assets/Approvals have teaching zero-states and optimistic UI with Undo.
+* Council displays UX KPIs; at least one alert configured and tested.
+* Accessibility AA verified with automated tools and a manual keyboard run.
+* P95 page interactive < 2.5s on 4G for dashboard & proofs.
+
+---
+
+# 🔧 Implementation Notes (to keep us fast)
+
+* **Schema deltas:**
+
+  * `proofs`: `version int`, `prev_proof_id uuid`, `share_expires_at timestamptz`, `views_count int`, `last_viewed_at timestamptz`.
+  * `proof_comments`: `x numeric`, `y numeric`, `zoom numeric`, `reason text`.
+  * `assets`: `derivatives jsonb`, `alt text`.
+  * `tenant_settings`: `watermark_enabled bool`, `watermark_text text`.
+
+* **Workers/cron:**
+
+  * Image derivatives + watermark job on asset upload and proof generation.
+  * Nightly KPI rollup view refresh.
+
+* **DX:**
+
+  * Feature flags for pins, version compare, and signed URLs so we can ship behind toggles.
+  * “Delight Checklist” in QA: each UX perk verified per page.
+
+---
+
+If you want, I can spin these into ready-to-assign tickets (with exact SQL and React component stubs) so your team can start sprinting today.

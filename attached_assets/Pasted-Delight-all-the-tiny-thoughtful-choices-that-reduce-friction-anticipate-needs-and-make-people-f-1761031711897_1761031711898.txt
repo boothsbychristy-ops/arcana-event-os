@@ -1,0 +1,212 @@
+Delight = all the tiny, thoughtful choices that reduce friction, anticipate needs, and make people feel competent. It’s not glitter; it’s the sensation of “this app gets me.” Practically, delight shows up when:
+
+* things are obvious without instruction (zero-states, inline hints)
+* feedback is instant and forgiving (optimistic saves + undo)
+* the app anticipates intent (pre-filled reasons, copy-link with expiry)
+* visual polish serves function (clear focus rings, legible contrast, smooth yet optional motion)
+* trust cues are explicit (watermarks, permissions, receipts)
+
+If we can measure it, we can manage it: shorter time-to-first-value, faster approval turnaround, fewer rework loops, higher share→view conversion, and lower support pings.
+
+---
+
+# One SQL migration (Phase 11.3 – Delight)
+
+Save as `migrations/11_3_delight.sql` (idempotent).
+
+```sql
+-- === Proof comments: pins & reasons
+alter table if not exists proof_comments
+  add column if not exists x numeric,
+  add column if not exists y numeric,
+  add column if not exists zoom numeric,
+  add column if not exists reason text check (reason in ('logo','color','text','other')) default 'other';
+
+-- === Proof versions & lineage
+alter table if not exists proofs
+  add column if not exists version int default 1,
+  add column if not exists prev_proof_id uuid references proofs(id);
+
+-- === Share link expiry & view receipts
+alter table if not exists approvals
+  add column if not exists share_expires_at timestamptz,
+  add column if not exists views_count int default 0,
+  add column if not exists last_viewed_at timestamptz;
+
+-- === Assets: derivatives for thumbnails + alt text
+alter table if not exists assets
+  add column if not exists derivatives jsonb default '{}'::jsonb,
+  add column if not exists alt text;
+
+-- === Tenant watermark settings
+create table if not exists tenant_settings (
+  tenant_id uuid primary key,
+  watermark_enabled boolean default true,
+  watermark_text text default 'Proof — Rainbow CRM'
+);
+
+-- === UX KPI view (last 30 days)
+create or replace view council_kpis_last30 as
+with first_value as (
+  select owner_id, min(created_at) as first_approval_at
+  from analytics_events
+  where event_type = 'proof_approved'
+  group by owner_id
+),
+signup as (
+  select id as user_id, created_at as signup_at from profiles
+)
+select
+  date_trunc('day', e.created_at) as day,
+  avg(extract(epoch from (fv.first_approval_at - s.signup_at))/3600)
+    filter (where fv.first_approval_at is not null) as ttfv_hours,
+  percentile_cont(0.5) within group (order by (e.meta->>'turnaround_hours')::numeric)
+    filter (where e.event_type='proof_approved') as approval_median_hours,
+  (count(*) filter (where e.event_type='proof_changes_requested')::numeric) /
+  nullif(count(*) filter (where e.event_type in ('proof_approved','proof_changes_requested'))::numeric,0) as rework_rate
+from analytics_events e
+left join first_value fv on fv.owner_id = e.owner_id
+left join signup s on s.user_id = e.owner_id
+where e.created_at >= now() - interval '30 days'
+group by 1
+order by 1;
+```
+
+---
+
+# React starters (drop-in stubs)
+
+## 1) `components/proof/PinLayer.tsx`
+
+```tsx
+import { useRef } from "react";
+
+type Pin = { id?: string; x: number; y: number; index: number; reason?: string; message?: string };
+
+export function PinLayer({
+  imageRef, pins, onAdd
+}: {
+  imageRef: React.RefObject<HTMLImageElement>;
+  pins: Pin[];
+  onAdd: (p: Omit<Pin, "index">) => void;
+}) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  function handleClick(e: React.MouseEvent) {
+    if (!imageRef.current || !wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width);
+    const y = ((e.clientY - rect.top) / rect.height);
+    onAdd({ x: +x.toFixed(4), y: +y.toFixed(4) });
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative" onClick={handleClick}>
+      {/* image element sits behind, via parent */}
+      {pins.map((p) => (
+        <button
+          key={`${p.id ?? p.index}`}
+          className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full w-6 h-6 text-xs
+                     bg-empress-pink text-black font-semibold grid place-items-center
+                     ring-2 ring-white/70"
+          style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+          aria-label={`Pin ${p.index}${p.reason ? `, ${p.reason}` : ""}`}
+        >
+          {p.index}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+## 2) `components/proof/Compare.tsx` (before/after slider)
+
+```tsx
+import { useState } from "react";
+
+export function Compare({ leftUrl, rightUrl }: { leftUrl: string; rightUrl: string }) {
+  const [pos, setPos] = useState(50);
+  return (
+    <div className="relative w-full overflow-hidden rounded-2xl border border-white/10">
+      <img src={rightUrl} alt="version-right" className="w-full block select-none pointer-events-none" />
+      <div className="absolute inset-0" style={{ width: `${pos}%`, overflow: "hidden" }}>
+        <img src={leftUrl} alt="version-left" className="w-full block select-none pointer-events-none" />
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={pos}
+        onChange={(e) => setPos(parseInt(e.target.value, 10))}
+        className="absolute inset-x-6 bottom-4 w-[calc(100%-3rem)]"
+        aria-label="Compare versions"
+      />
+    </div>
+  );
+}
+```
+
+## 3) `components/zerostate/ZeroStateCard.tsx`
+
+```tsx
+export function ZeroStateCard({
+  title, steps, ctaLabel, onCta
+}: {
+  title: string;
+  steps: string[];
+  ctaLabel: string;
+  onCta: () => void;
+}) {
+  return (
+    <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 border border-white/10 text-white">
+      <h3 className="text-lg font-semibold mb-2">{title}</h3>
+      <ol className="list-decimal list-inside text-sm text-gray-300 space-y-1 mb-4">
+        {steps.map((s, i) => <li key={i}>{s}</li>)}
+      </ol>
+      <button onClick={onCta} className="bg-empress-pink hover:bg-empress-pink/80 rounded-xl px-4 py-2">
+        {ctaLabel}
+      </button>
+    </div>
+  );
+}
+```
+
+**Usage examples**
+
+* Pipeline zero-state:
+
+```tsx
+<ZeroStateCard
+  title="Start your first pipeline"
+  steps={["Create a client","Add an event date","Attach a proof to review"]}
+  ctaLabel="New Client"
+  onCta={() => setShowClientModal(true)}
+/>
+```
+
+* Proof compare:
+
+```tsx
+<Compare leftUrl={prevProofUrl} rightUrl={currentProofUrl} />
+```
+
+* Pins:
+
+```tsx
+<PinLayer imageRef={imgRef} pins={pins} onAdd={(p)=>openCommentModal(p)} />
+```
+
+---
+
+# A quick “delight” checklist (to keep us honest)
+
+* Zero-state in every blank screen.
+* Optimistic save + undo on every CRUD.
+* Copy-link with expiry + receipts.
+* Pins + structured reasons + compare.
+* Watermarked/downscaled public proofs; hi-res via signed URLs.
+* Keyboard-only approval path works; visible focus.
+* Council shows TTFV, turnaround, rework; alert at thresholds.
+
+If you want me to also hand you the minimal server endpoints for: pin comments, share-link expiry/receipts, and signed URLs, I’ll draft them in the exact file layout you’re using so your team can paste and go.
