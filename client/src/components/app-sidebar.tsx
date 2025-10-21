@@ -19,6 +19,7 @@ import {
   BarChart3,
   FileImage,
   Kanban,
+  FolderOpen,
 } from "lucide-react";
 import {
   Sidebar,
@@ -54,6 +55,7 @@ const menuItems = [
     items: [
       { title: "Staff", url: "/staff", icon: UserSquare, testId: "link-staff" },
       { title: "Staff Applications", url: "/staff-applications", icon: ClipboardList, testId: "link-staff-applications" },
+      { title: "Asset Library", url: "/assets", icon: FolderOpen, testId: "link-assets" },
       { title: "Boards", url: "/boards", icon: LayoutGrid, testId: "link-boards" },
       { title: "Tasks", url: "/tasks", icon: CheckSquare, testId: "link-tasks" },
       { title: "Calendar", url: "/calendar", icon: CalendarDays, testId: "link-calendar" },
