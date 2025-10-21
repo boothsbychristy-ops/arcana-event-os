@@ -29,6 +29,8 @@ import Analytics from "@/pages/analytics";
 import Approvals from "@/pages/approvals";
 import PaymentSettings from "@/pages/settings/payment-settings";
 import BookingEngineSettings from "@/pages/settings/booking-engine";
+import Pipeline from "@/pages/Pipeline";
+import ProofPortal from "@/pages/ProofPortal";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -75,6 +77,8 @@ function Router() {
       <Route path="/automations">{() => <ProtectedRoute component={Automations} />}</Route>
       <Route path="/analytics">{() => <ProtectedRoute component={Analytics} />}</Route>
       <Route path="/approvals">{() => <ProtectedRoute component={Approvals} />}</Route>
+      <Route path="/pipeline">{() => <ProtectedRoute component={Pipeline} />}</Route>
+      <Route path="/proofs/:projectId">{() => <ProtectedRoute component={ProofPortal} />}</Route>
       <Route path="/settings/payments">{() => <ProtectedRoute component={PaymentSettings} />}</Route>
       <Route path="/settings/booking-engine">{() => <ProtectedRoute component={BookingEngineSettings} />}</Route>
       <Route component={NotFound} />

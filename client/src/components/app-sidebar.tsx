@@ -18,6 +18,7 @@ import {
   Zap,
   BarChart3,
   FileImage,
+  Kanban,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,6 +41,7 @@ const menuItems = [
   {
     group: "Sales",
     items: [
+      { title: "Pipeline", url: "/pipeline", icon: Kanban, testId: "link-pipeline" },
       { title: "Leads", url: "/leads", icon: UserPlus, testId: "link-leads" },
       { title: "Clients", url: "/clients", icon: Users, testId: "link-clients" },
       { title: "Proposals", url: "/proposals", icon: FileText, testId: "link-proposals" },
