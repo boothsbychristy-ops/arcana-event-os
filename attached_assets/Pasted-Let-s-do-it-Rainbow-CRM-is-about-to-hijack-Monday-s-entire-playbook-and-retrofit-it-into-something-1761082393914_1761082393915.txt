@@ -1,0 +1,159 @@
+Let’s do it — Rainbow CRM is about to hijack Monday’s entire playbook and retrofit it into something better tailored for event-based collaboration. Here’s your freshly evolved roadmap, rebuilt to absorb Monday.com’s Work OS DNA and wrap it in Rainbow’s design-first, feedback-centric ethos.
+
+---
+
+# 🌈 Rainbow CRM — New Roadmap (Phase 12+)
+
+**Codename:** *“Rainbow ≠ Monday, but Better.”*
+
+### ✅ STATUS: Closed Beta locked. Phase 11.5 complete (Settings, Council, Production Hardening)
+
+---
+
+## 🚀 Phase 12.0 — Dynamic Fields & Boards Foundation
+
+> “You can’t build flexible workflows on rigid schemas.”
+
+* Migrate Contacts, Leads, Events to new `boards`, `fields`, `field_values` model
+* Support: text, status (label set), number, date, dropdown, checkbox
+* Add “+ Column” UI to all tables (with field type picker)
+* Drag-and-drop to reorder fields
+* Static → dynamic data patcher for legacy rows
+* Enable field-level validation + summaries (e.g., sum of budget column)
+
+**Tech:** `fields` + `field_values` schema; type-safe access via Drizzle
+**UX:** Full drag-resize-reorder columns, add/remove, rename inline
+**Outcome:** Boards are now living things.
+
+---
+
+## ⚡ Phase 12.1 — Automations Engine + Builder UI
+
+> “When status = Done → Notify Vendor” becomes no-code reality.
+
+* Automation Rule Engine backend: triggers, filters, actions
+* Trigger types: field changed, item created, date arrived, recurring
+* Action types: notify user, set field, send email, create item, run webhook
+* Builder UI: “When this happens… Then do this” with prebuilt templates
+* Automation logs + Council overview
+
+**Tech:** AutomationRules table + scheduler; worker runs actions from queue
+**UX:** No-code builder UI with dropdowns, tooltips, sample recipes
+**Outcome:** Smart workflows without engineering.
+
+---
+
+## 📧 Phase 12.2 — Bulk Email Campaigns + Merge Fields
+
+> “Mass-email 83 leads who haven’t responded” from inside the board.
+
+* Select rows → “Bulk Email” → launch rich composer
+* Support merge tags: {first_name}, {event_date}, {custom_field}
+* Reusable Email Templates + send test to self
+* Delivery via SendGrid/SMTP + logs (success/fail/open)
+* Segment & filter before send
+
+**Tech:** EmailTemplates, EmailCampaigns, EmailJobs queue
+**UX:** Polished full-screen composer with preview, dynamic test, undo
+**Outcome:** Rainbow eats Mailchimp for breakfast.
+
+---
+
+## 🧠 Phase 12.3 — Agents, Alerts & Follow-Ups
+
+> “Soft-AI” that nudges and reminds. (Your ops sidekick.)
+
+* Agent engine for follow-up nudges: “item untouched 3 days”, “date overdue”
+* Smart escalation: notify ops if quote pending approval for >48h
+* Inbox Zero features: auto-prioritize, snooze, assign
+* Daily Digest email + Slack digest webhook
+* Council Alert Triggers for risk thresholds
+
+**Tech:** Persistent scheduler, agent queue, digests via CRON
+**UX:** Alerts panel, opt-in Slack/webhook integrations
+**Outcome:** “You forgot” becomes “We remembered for you.”
+
+---
+
+## 📅 Phase 12.4 — Multiple Views: Kanban, Calendar, Gantt (lite)
+
+> The same data, reframed for different minds.
+
+* Kanban View (group by status field, drag-to-update)
+* Calendar View (items w/ date fields plotted live)
+* Timeline View (start/end → vertical bars, minimal Gantt)
+* Save default views per board, support public read-only links
+* Per-view filter/save-as-template
+
+**Tech:** FullCalendar, react-beautiful-dnd, board_views schema
+**UX:** “+ Add View” UI like Monday; tabbed switcher; print/export
+**Outcome:** Rainbow stops being a spreadsheet.
+
+---
+
+## 🧩 Phase 12.5 — Public API + Webhooks + Zapier App
+
+> Integrate like a native. Talk to everything.
+
+* OAuth2 + API keys for external apps
+* API docs (OpenAPI), tokens page in settings
+* Webhook registration: item.created, item.updated, field.changed
+* Zapier App: “trigger from new lead” + “create Rainbow item”
+* Slack & Teams bots (basic)
+
+**Tech:** REST API layer, HMAC webhook signing, Zapier scaffold
+**UX:** Dev Portal tab, webhook test button, integration guides
+**Outcome:** Rainbow becomes an ecosystem.
+
+---
+
+## 🎨 Phase 12.6 — Event Templates, Approvals, Live Asset Feedback
+
+> Designed for creative teams running events, not just pipelines.
+
+* Save event templates (board structure + field values + automations)
+* Client-side approval buttons with status tracking
+* Live asset feedback (image/video viewer + comment threads + versioning)
+* PDF/slide proofing support (watermarks, markup)
+* “Waiting on approval” reminders
+
+**Tech:** Proofs v2, AnnotatableAssets table, Approvals extended
+**UX:** Like Figma comments + Stripe Approve flows
+**Outcome:** Rainbow = the one tool creatives + clients both love.
+
+---
+
+## 🧾 Phase 12.7 — Reporting Dashboards & KPIs
+
+> Metrics that make your ops team cry with joy.
+
+* Visualize pipeline health, approval lag, lead conversion
+* Board-level dashboards: time-in-stage, win/loss %, overdue items
+* Council-level KPIs: time-to-first-value, rework %, share→view rate
+* Export to CSV/Notion/Sheets
+
+**Tech:** Aggregated views, async report jobs, caching
+**UX:** Drag-to-build chart dashboards, one-click export
+**Outcome:** Rainbow teaches you how your business *really* runs.
+
+---
+
+## ✨ Phase 13.0 — Empress OS Integration (Unified UX Layer)
+
+> Merge prompt stack + automation + event layer.
+
+* Single login across Rainbow + Empress Studio
+* Shared asset vault between Studio + CRM
+* Cross-app automations (e.g., “Generate new mockup in Empress when event status = ‘Design’”)
+* Rainbow items with AI-native fields (auto-summarized briefs, tone suggestions)
+* Inline gen AI in approvals: “Rewrite this email”, “Summarize feedback”
+
+---
+
+### 🧠 Meta-Move
+
+This roadmap assumes you’re building not just parity with Monday.com, but **a version of it that actually understands creative workflows, live assets, and event production**. Not a spreadsheet with stickers.
+
+---
+
+Want me to drop this into `replit.md` as Phase 12.0–13.0, with status checkboxes per feature? Or generate the Phase 12.0 migration + UI payload next?
