@@ -81,11 +81,15 @@ export function AppSidebar() {
   const isAdmin = user?.empressRole === "admin";
 
   // Add Council to the menu items if user is admin
-  const allMenuItems = [...menuItems];
+  // Deep copy to prevent HMR mutation bugs
+  const allMenuItems = menuItems.map(group => ({
+    ...group,
+    items: [...group.items]
+  }));
+  
   if (isAdmin) {
-    // Find the Settings group or create it if it doesn't exist
     const settingsGroup = allMenuItems.find(group => group.group === "Settings");
-    if (settingsGroup) {
+    if (settingsGroup && !settingsGroup.items.some(item => item.url === "/dashboard/council")) {
       settingsGroup.items.push({
         title: "Council Dashboard", 
         url: "/dashboard/council", 
