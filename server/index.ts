@@ -9,11 +9,29 @@ import cors from "cors";
 import { uploadsStatic } from "./uploads";
 import assetRoutes from "./routes.assets";
 import { authMiddleware } from "./auth";
+import { httpLogger, logger } from "./log";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { randomUUID } from "crypto";
 
 const app = express();
 
 // Trust proxy - Replit runs behind a proxy
 app.set('trust proxy', 1);
+
+// Production logging: Add request ID for traceability
+app.use((req, _res, next) => {
+  (req as any).id = randomUUID();
+  next();
+});
+
+// Production logging: HTTP request/response logger
+app.use(httpLogger);
+
+// Security: CSP asset origin validation
+const assetOrigin = process.env.PUBLIC_ASSET_ORIGIN || "'self'";
+if (process.env.NODE_ENV === "production" && assetOrigin === "'self'") {
+  logger.warn("PUBLIC_ASSET_ORIGIN not configured - external images may be blocked by CSP");
+}
 
 // Security: HTTP headers protection with CSP
 app.use(helmet({
@@ -22,7 +40,7 @@ app.use(helmet({
     useDefaults: true,
     directives: {
       "default-src": ["'self'"],
-      "img-src": ["'self'", "data:", "blob:", process.env.PUBLIC_ASSET_ORIGIN ?? "'self'"],
+      "img-src": ["'self'", "data:", "blob:", assetOrigin],
       "media-src": ["'self'", "blob:"],
       "connect-src": ["'self'"],
       "script-src": ["'self'"],
@@ -77,18 +95,6 @@ app.use("/api/approvals/public", approvalsPublicRouter);
 // Import council routes
 import council from "./routes/council";
 
-// Security: Safe metadata logging (no PII in logs)
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (req.path.startsWith("/api")) {
-      log(`${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
-    }
-  });
-  next();
-});
-
 // Security: Global API authentication guard (whitelist public routes)
 const PUBLIC_ROUTES = new Set([
   "/api/auth/login",
@@ -113,19 +119,16 @@ app.use((req, res, next) => {
   
   // Check exact matches
   if (PUBLIC_ROUTES.has(req.path)) {
-    console.log(`[Auth] Skipping auth for exact match: ${req.path}`);
     return next();
   }
   
   // Check pattern matches
   const isPublicPattern = PUBLIC_ROUTE_PATTERNS.some(pattern => pattern.test(req.path));
   if (isPublicPattern) {
-    console.log(`[Auth] Skipping auth for pattern match: ${req.path}`);
     return next();
   }
   
   // Otherwise require auth
-  console.log(`[Auth] Requiring auth for: ${req.path}`);
   return authMiddleware(req as any, res, next);
 });
 
@@ -133,25 +136,10 @@ app.use((req, res, next) => {
   const server = await registerRoutes(app);
 
   // Centralized 404 handler for all unmatched API routes
-  app.use("/api/*", (_req: Request, res: Response) => {
-    res.status(404).json({
-      error: {
-        code: "NOT_FOUND",
-        message: "Route not found"
-      }
-    });
-  });
+  app.use("/api/*", notFoundHandler);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    // Log the error for debugging
-    console.error("Error:", err);
-    
-    // Send error response (do not rethrow - this would crash the server)
-    res.status(status).json({ message });
-  });
+  // Global error handler - must be last
+  app.use(errorHandler);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
@@ -177,9 +165,9 @@ app.use((req, res, next) => {
 
   // Schedule hourly automation runs
   cron.schedule("0 * * * *", () => {
-    log("🤖 Running scheduled automations...");
+    logger.info("Running scheduled automations");
     runScheduledAutomations().catch(err => {
-      console.error("Error running scheduled automations:", err);
+      logger.error({ err }, "Error running scheduled automations");
     });
   });
 })();
