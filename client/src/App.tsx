@@ -25,7 +25,7 @@ import BoardView from "@/pages/board-view";
 import Calendar from "@/pages/calendar";
 import Messages from "@/pages/messages";
 import Automations from "@/pages/automations";
-import Analytics from "@/pages/analytics";
+import Analytics from "@/pages/Analytics";
 import Approvals from "@/pages/approvals";
 import PaymentSettings from "@/pages/settings/payment-settings";
 import BookingEngineSettings from "@/pages/settings/booking-engine";
