@@ -35,6 +35,16 @@ import type {
   Automation, InsertAutomation,
   AutomationLog, InsertAutomationLog,
   Approval, InsertApproval,
+  Event, InsertEvent,
+  Project, InsertProject,
+  Proof, InsertProof,
+  ProofComment, InsertProofComment,
+  Asset, InsertAsset,
+  SystemLog, InsertSystemLog,
+  UserPref, InsertUserPref,
+  AnalyticsEvent, InsertAnalyticsEvent,
+  MirrorWallet, InsertMirrorWallet,
+  MirrorTx, InsertMirrorTx,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -258,6 +268,61 @@ export interface IStorage {
     openDeliverables: number;
   }>;
   getRevenueByMonth(): Promise<Array<{ month: string; revenue: number }>>;
+  
+  // Events
+  getAllEvents(ownerId: string): Promise<Event[]>;
+  getEvent(id: string): Promise<Event | undefined>;
+  getEventsByClient(clientId: string): Promise<Event[]>;
+  createEvent(event: InsertEvent): Promise<Event>;
+  updateEvent(id: string, event: Partial<InsertEvent>): Promise<Event | undefined>;
+  deleteEvent(id: string): Promise<boolean>;
+  
+  // Projects
+  getAllProjects(ownerId: string): Promise<Project[]>;
+  getProject(id: string): Promise<Project | undefined>;
+  getProjectsByEvent(eventId: string): Promise<Project[]>;
+  createProject(project: InsertProject): Promise<Project>;
+  updateProject(id: string, project: Partial<InsertProject>): Promise<Project | undefined>;
+  deleteProject(id: string): Promise<boolean>;
+  
+  // Proofs
+  getAllProofs(ownerId: string): Promise<Proof[]>;
+  getProof(id: string): Promise<Proof | undefined>;
+  getProofByToken(token: string): Promise<Proof | undefined>;
+  getProofsByProject(projectId: string): Promise<Proof[]>;
+  createProof(proof: InsertProof): Promise<Proof>;
+  updateProof(id: string, proof: Partial<InsertProof>): Promise<Proof | undefined>;
+  deleteProof(id: string): Promise<boolean>;
+  
+  // Proof Comments
+  getProofComments(proofId: string): Promise<ProofComment[]>;
+  createProofComment(comment: InsertProofComment): Promise<ProofComment>;
+  deleteProofComment(id: string): Promise<boolean>;
+  
+  // Assets
+  getAllAssets(ownerId: string): Promise<Asset[]>;
+  getAsset(id: string): Promise<Asset | undefined>;
+  getAssetsByProject(projectId: string): Promise<Asset[]>;
+  createAsset(asset: InsertAsset): Promise<Asset>;
+  updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset | undefined>;
+  deleteAsset(id: string): Promise<boolean>;
+  
+  // User Preferences
+  getUserPrefs(ownerId: string): Promise<UserPref | undefined>;
+  upsertUserPrefs(prefs: InsertUserPref): Promise<UserPref>;
+  
+  // Analytics Events
+  logAnalyticsEvent(event: InsertAnalyticsEvent): Promise<AnalyticsEvent>;
+  getAnalyticsEvents(ownerId: string | null, limit?: number): Promise<AnalyticsEvent[]>;
+  
+  // Mirror Protocol
+  getMirrorWallet(userId: string): Promise<MirrorWallet | undefined>;
+  updateMirrorBalance(userId: string, delta: number, reason: string, meta?: any): Promise<MirrorWallet | undefined>;
+  getMirrorTransactions(userId: string, limit?: number): Promise<MirrorTx[]>;
+  
+  // System Logs
+  createSystemLog(log: InsertSystemLog): Promise<SystemLog>;
+  getSystemLogs(source?: string, limit?: number): Promise<SystemLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1458,6 +1523,295 @@ export class DatabaseStorage implements IStorage {
     });
 
     return Object.entries(distribution).map(([status, count]) => ({ status, count }));
+  }
+
+  // Events
+  async getAllEvents(ownerId: string): Promise<Event[]> {
+    return db.select()
+      .from(schema.events)
+      .innerJoin(schema.clients, eq(schema.events.clientId, schema.clients.id))
+      .where(eq(schema.clients.ownerId, ownerId))
+      .then(results => results.map(r => r.events));
+  }
+
+  async getEvent(id: string): Promise<Event | undefined> {
+    const [event] = await db.select().from(schema.events).where(eq(schema.events.id, id));
+    return event;
+  }
+
+  async getEventsByClient(clientId: string): Promise<Event[]> {
+    return db.select().from(schema.events)
+      .where(eq(schema.events.clientId, clientId))
+      .orderBy(desc(schema.events.createdAt));
+  }
+
+  async createEvent(insertEvent: InsertEvent): Promise<Event> {
+    const [event] = await db.insert(schema.events).values(insertEvent).returning();
+    return event;
+  }
+
+  async updateEvent(id: string, eventData: Partial<InsertEvent>): Promise<Event | undefined> {
+    const [event] = await db.update(schema.events)
+      .set({ ...eventData, updatedAt: new Date() })
+      .where(eq(schema.events.id, id))
+      .returning();
+    return event;
+  }
+
+  async deleteEvent(id: string): Promise<boolean> {
+    const result = await db.delete(schema.events).where(eq(schema.events.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Projects
+  async getAllProjects(ownerId: string): Promise<Project[]> {
+    return db.select()
+      .from(schema.projects)
+      .innerJoin(schema.events, eq(schema.projects.eventId, schema.events.id))
+      .innerJoin(schema.clients, eq(schema.events.clientId, schema.clients.id))
+      .where(eq(schema.clients.ownerId, ownerId))
+      .then(results => results.map(r => r.projects));
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    const [project] = await db.select().from(schema.projects).where(eq(schema.projects.id, id));
+    return project;
+  }
+
+  async getProjectsByEvent(eventId: string): Promise<Project[]> {
+    return db.select().from(schema.projects)
+      .where(eq(schema.projects.eventId, eventId))
+      .orderBy(desc(schema.projects.createdAt));
+  }
+
+  async createProject(insertProject: InsertProject): Promise<Project> {
+    const [project] = await db.insert(schema.projects).values(insertProject).returning();
+    return project;
+  }
+
+  async updateProject(id: string, projectData: Partial<InsertProject>): Promise<Project | undefined> {
+    const [project] = await db.update(schema.projects)
+      .set({ ...projectData, updatedAt: new Date() })
+      .where(eq(schema.projects.id, id))
+      .returning();
+    return project;
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    const result = await db.delete(schema.projects).where(eq(schema.projects.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Proofs
+  async getAllProofs(ownerId: string): Promise<Proof[]> {
+    return db.select()
+      .from(schema.proofs)
+      .innerJoin(schema.projects, eq(schema.proofs.projectId, schema.projects.id))
+      .innerJoin(schema.events, eq(schema.projects.eventId, schema.events.id))
+      .innerJoin(schema.clients, eq(schema.events.clientId, schema.clients.id))
+      .where(eq(schema.clients.ownerId, ownerId))
+      .then(results => results.map(r => r.proofs));
+  }
+
+  async getProof(id: string): Promise<Proof | undefined> {
+    const [proof] = await db.select().from(schema.proofs).where(eq(schema.proofs.id, id));
+    return proof;
+  }
+
+  async getProofByToken(token: string): Promise<Proof | undefined> {
+    const [proof] = await db.select().from(schema.proofs).where(eq(schema.proofs.token, token));
+    return proof;
+  }
+
+  async getProofsByProject(projectId: string): Promise<Proof[]> {
+    return db.select().from(schema.proofs)
+      .where(eq(schema.proofs.projectId, projectId))
+      .orderBy(desc(schema.proofs.createdAt));
+  }
+
+  async createProof(insertProof: InsertProof): Promise<Proof> {
+    const [proof] = await db.insert(schema.proofs).values(insertProof).returning();
+    return proof;
+  }
+
+  async updateProof(id: string, proofData: Partial<InsertProof>): Promise<Proof | undefined> {
+    const [proof] = await db.update(schema.proofs)
+      .set({ ...proofData, updatedAt: new Date() })
+      .where(eq(schema.proofs.id, id))
+      .returning();
+    return proof;
+  }
+
+  async deleteProof(id: string): Promise<boolean> {
+    const result = await db.delete(schema.proofs).where(eq(schema.proofs.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Proof Comments
+  async getProofComments(proofId: string): Promise<ProofComment[]> {
+    return db.select().from(schema.proofComments)
+      .where(eq(schema.proofComments.proofId, proofId))
+      .orderBy(desc(schema.proofComments.createdAt));
+  }
+
+  async createProofComment(insertComment: InsertProofComment): Promise<ProofComment> {
+    const [comment] = await db.insert(schema.proofComments).values(insertComment).returning();
+    return comment;
+  }
+
+  async deleteProofComment(id: string): Promise<boolean> {
+    const result = await db.delete(schema.proofComments).where(eq(schema.proofComments.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Assets
+  async getAllAssets(ownerId: string): Promise<Asset[]> {
+    return db.select().from(schema.assets)
+      .where(eq(schema.assets.ownerId, ownerId))
+      .orderBy(desc(schema.assets.createdAt));
+  }
+
+  async getAsset(id: string): Promise<Asset | undefined> {
+    const [asset] = await db.select().from(schema.assets).where(eq(schema.assets.id, id));
+    return asset;
+  }
+
+  async getAssetsByProject(projectId: string): Promise<Asset[]> {
+    return db.select().from(schema.assets)
+      .where(eq(schema.assets.projectId, projectId))
+      .orderBy(desc(schema.assets.createdAt));
+  }
+
+  async createAsset(insertAsset: InsertAsset): Promise<Asset> {
+    const [asset] = await db.insert(schema.assets).values(insertAsset).returning();
+    return asset;
+  }
+
+  async updateAsset(id: string, assetData: Partial<InsertAsset>): Promise<Asset | undefined> {
+    const [asset] = await db.update(schema.assets)
+      .set({ ...assetData, updatedAt: new Date() })
+      .where(eq(schema.assets.id, id))
+      .returning();
+    return asset;
+  }
+
+  async deleteAsset(id: string): Promise<boolean> {
+    const result = await db.delete(schema.assets).where(eq(schema.assets.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // User Preferences
+  async getUserPrefs(ownerId: string): Promise<UserPref | undefined> {
+    const [pref] = await db.select().from(schema.userPrefs)
+      .where(eq(schema.userPrefs.ownerId, ownerId));
+    return pref;
+  }
+
+  async upsertUserPrefs(insertPrefs: InsertUserPref): Promise<UserPref> {
+    const existing = await this.getUserPrefs(insertPrefs.ownerId);
+    if (existing) {
+      const [updated] = await db.update(schema.userPrefs)
+        .set(insertPrefs)
+        .where(eq(schema.userPrefs.ownerId, insertPrefs.ownerId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(schema.userPrefs).values(insertPrefs).returning();
+      return created;
+    }
+  }
+
+  // Analytics Events
+  async logAnalyticsEvent(insertEvent: InsertAnalyticsEvent): Promise<AnalyticsEvent> {
+    const [event] = await db.insert(schema.analyticsEvents).values(insertEvent).returning();
+    return event;
+  }
+
+  async getAnalyticsEvents(ownerId: string | null, limit?: number): Promise<AnalyticsEvent[]> {
+    let query = db.select().from(schema.analyticsEvents);
+    
+    if (ownerId) {
+      query = query.where(eq(schema.analyticsEvents.ownerId, ownerId)) as any;
+    }
+    
+    query = query.orderBy(desc(schema.analyticsEvents.createdAt)) as any;
+    
+    if (limit) {
+      query = query.limit(limit) as any;
+    }
+    
+    return query;
+  }
+
+  // Mirror Protocol
+  async getMirrorWallet(userId: string): Promise<MirrorWallet | undefined> {
+    const [wallet] = await db.select().from(schema.mirrorWallets)
+      .where(eq(schema.mirrorWallets.userId, userId));
+    return wallet;
+  }
+
+  async updateMirrorBalance(userId: string, delta: number, reason: string, meta?: any): Promise<MirrorWallet | undefined> {
+    const wallet = await this.getMirrorWallet(userId);
+    const currentBalance = wallet?.balance ?? 0;
+    const newBalance = currentBalance + delta;
+    
+    if (newBalance < 0) {
+      throw new Error('Insufficient Mirror Coins');
+    }
+    
+    // Create or update wallet
+    if (wallet) {
+      await db.update(schema.mirrorWallets)
+        .set({ balance: newBalance, updatedAt: new Date() })
+        .where(eq(schema.mirrorWallets.userId, userId));
+    } else {
+      await db.insert(schema.mirrorWallets)
+        .values({ userId, balance: newBalance });
+    }
+    
+    // Log transaction
+    await db.insert(schema.mirrorTx).values({
+      userId,
+      delta,
+      reason,
+      meta: meta || {}
+    });
+    
+    return this.getMirrorWallet(userId);
+  }
+
+  async getMirrorTransactions(userId: string, limit?: number): Promise<MirrorTx[]> {
+    let query = db.select().from(schema.mirrorTx)
+      .where(eq(schema.mirrorTx.userId, userId))
+      .orderBy(desc(schema.mirrorTx.createdAt));
+    
+    if (limit) {
+      query = query.limit(limit) as any;
+    }
+    
+    return query;
+  }
+
+  // System Logs
+  async createSystemLog(insertLog: InsertSystemLog): Promise<SystemLog> {
+    const [log] = await db.insert(schema.systemLogs).values(insertLog).returning();
+    return log;
+  }
+
+  async getSystemLogs(source?: string, limit?: number): Promise<SystemLog[]> {
+    let query = db.select().from(schema.systemLogs);
+    
+    if (source) {
+      query = query.where(eq(schema.systemLogs.source, source)) as any;
+    }
+    
+    query = query.orderBy(desc(schema.systemLogs.createdAt)) as any;
+    
+    if (limit) {
+      query = query.limit(limit) as any;
+    }
+    
+    return query;
   }
 }
 
