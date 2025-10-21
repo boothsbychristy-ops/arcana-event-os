@@ -31,6 +31,7 @@ const ALLOWED_MIME_TYPES = {
 const MAX_FILE_SIZES = {
   image: 10 * 1024 * 1024,     // 10MB for images
   document: 25 * 1024 * 1024,  // 25MB for documents
+  all: 10 * 1024 * 1024,       // 10MB for mixed uploads
   default: 10 * 1024 * 1024    // 10MB default
 };
 
