@@ -1,0 +1,342 @@
+Alright, Council time. Here’s a clean, drop-in **Phase 11.2 — Council Dashboard (Admin + Oversight)** payload: schema views, secure API, and a Neon-glass React page with live charts and tables. Paste, run, and you’ll have real telemetry on security, usage, jobs, and wallets.
+
+---
+
+# 🧩 Phase 11.2 — Council Dashboard
+
+## 1) SQL: admin-friendly views (read-only, cheap joins)
+
+```sql
+-- VIEWS FOR COUNCIL METRICS
+
+-- 1) Users summary
+create or replace view council_users as
+select
+  p.id,
+  p.email,
+  coalesce(p.display_name, split_part(p.email,'@',1)) as name,
+  p.empress_role,
+  w.balance as coins_balance,
+  p.created_at
+from profiles p
+left join mirror_wallets w on w.user_id = p.id;
+
+-- 2) Security signals (last 7 days)
+create or replace view council_security_last7 as
+select
+  date_trunc('day', created_at) as day,
+  count(*) filter (where (meta->>'status')::text in ('401','403')) as auth_failures,
+  count(*) filter (where source = 'rate_limit') as rate_limited,
+  count(*) filter (where source = 'health' and message='ping_ok') as health_pings
+from system_logs
+where created_at >= now() - interval '7 days'
+group by day
+order by day;
+
+-- 3) Analytics events daily (last 30)
+create or replace view council_analytics_last30 as
+select
+  date_trunc('day', created_at) as day,
+  count(*) as total_events,
+  count(*) filter (where event_type = 'proof_approved') as approvals,
+  count(*) filter (where event_type = 'asset_uploaded') as uploads,
+  count(*) filter (where event_type = 'mockup_enqueued') as mockups
+from analytics_events
+where created_at >= now() - interval '30 days'
+group by day
+order by day;
+
+-- 4) Wallet spending (last 30)
+create or replace view council_spend_last30 as
+select
+  date_trunc('day', created_at) as day,
+  sum(case when delta < 0 then -delta else 0 end) as coins_spent,
+  sum(case when delta > 0 then delta else 0 end) as coins_granted
+from mirror_tx
+where created_at >= now() - interval '30 days'
+group by day
+order by day;
+```
+
+> RLS: These are views; keep your normal table RLS. For Council endpoints we’ll enforce `empress_role='admin'` server-side.
+
+---
+
+## 2) Server: admin gate + metrics endpoints
+
+**`server/middleware/admin.ts`**
+
+```ts
+import type { Request, Response, NextFunction } from "express";
+import { Errors } from "../errors";
+import { db } from "../db";
+import { profiles } from "../shared/schema";
+import { eq } from "drizzle-orm";
+
+export async function requireAdmin(req: Request, _res: Response, next: NextFunction) {
+  if (!req.user?.id) return next(Errors.UNAUTHORIZED());
+  const row = await db.select({ role: profiles.empressRole }).from(profiles).where(eq(profiles.id, req.user.id)).limit(1);
+  const role = row[0]?.role ?? "user";
+  if (role !== "admin") return next(Errors.FORBIDDEN("Admin only"));
+  return next();
+}
+```
+
+**`server/routes/council.ts`**
+
+```ts
+import { Router } from "express";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
+import { asyncHandler } from "../middleware/errorHandler";
+import { requireAdmin } from "../middleware/admin";
+
+export const council = Router();
+council.use(requireAdmin);
+
+// GET /api/council/metrics
+council.get("/metrics", asyncHandler(async (_req, res) => {
+  const [users, sec, analytics, spend] = await Promise.all([
+    db.execute(sql`select * from council_users order by created_at desc limit 200`),
+    db.execute(sql`select * from council_security_last7`),
+    db.execute(sql`select * from council_analytics_last30`),
+    db.execute(sql`select * from council_spend_last30`),
+  ]);
+
+  // quick totals
+  const totals = {
+    users: (users as any).rowCount ?? users.length ?? 0,
+    coins_in_circulation: (await db.execute(sql`
+      select coalesce(sum(balance),0) as total from mirror_wallets`)).rows?.[0]?.total ?? 0,
+    approvals_30d: (analytics as any).rows?.reduce((a,r)=>a+(r.approvals||0),0) ?? 0,
+    uploads_30d: (analytics as any).rows?.reduce((a,r)=>a+(r.uploads||0),0) ?? 0,
+  };
+
+  res.json({
+    totals,
+    users: (users as any).rows ?? users,                // council_users
+    security: (sec as any).rows ?? sec,                 // council_security_last7
+    analytics: (analytics as any).rows ?? analytics,    // council_analytics_last30
+    spend: (spend as any).rows ?? spend,                // council_spend_last30
+  });
+}));
+
+// POST /api/council/users/:id/role  { role: "admin" | "user" }
+council.post("/users/:id/role", asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { role } = req.body as { role: "admin" | "user" };
+  if (!["admin","user"].includes(role)) return res.status(400).json({ error: { code:"BAD_ROLE" } });
+  await db.execute(sql`update profiles set empress_role = ${role} where id = ${id}`);
+  res.json({ ok: true });
+}));
+
+// Optional: /api/council/wallets/:id/grant { amount: number }
+council.post("/wallets/:id/grant", asyncHandler(async (req,res) => {
+  const { id } = req.params;
+  const { amount } = req.body as { amount: number };
+  await db.execute(sql`
+    insert into mirror_wallets (user_id, balance) values (${id}, ${amount})
+    on conflict (user_id) do update set balance = mirror_wallets.balance + ${amount}, updated_at = now()
+  `);
+  await db.execute(sql`
+    insert into mirror_tx (user_id, delta, reason) values (${id}, ${amount}, 'admin_grant')
+  `);
+  res.json({ ok: true });
+}));
+
+export default council;
+```
+
+**Wire it in `server/index.ts`:**
+
+```ts
+import council from "./routes/council";
+app.use("/api/council", council);
+```
+
+---
+
+## 3) React: Council page (live charts + tables)
+
+**Route:** `/dashboard/council` (admin only in UI; server still enforces)
+
+**`client/src/pages/dashboard/council.tsx`**
+
+```tsx
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
+import { GlassCard } from "@/components/GlassCard";
+import { Button } from "@/components/ui/Button";
+
+export default function Council() {
+  const qc = useQueryClient();
+  const { data } = useQuery(["council"], async () => {
+    const res = await fetch("/api/council/metrics");
+    if (!res.ok) throw new Error("Council fetch failed");
+    return res.json();
+  });
+
+  const promote = useMutation({
+    mutationFn: async ({ id, role }: { id: string; role: "admin" | "user" }) =>
+      fetch(`/api/council/users/${id}/role`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ role }) }),
+    onSuccess: () => qc.invalidateQueries(["council"]),
+  });
+
+  if (!data) return <div className="p-6 text-gray-400">Loading Council…</div>;
+
+  const { totals, users, security, analytics, spend } = data;
+
+  return (
+    <div className="min-h-screen text-white space-y-6">
+      {/* Totals */}
+      <div className="grid grid-cols-4 gap-4">
+        <Stat label="Users" value={totals.users} />
+        <Stat label="Coins in Circulation" value={totals.coins_in_circulation} />
+        <Stat label="Approvals (30d)" value={totals.approvals_30d} />
+        <Stat label="Uploads (30d)" value={totals.uploads_30d} />
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-2 gap-4">
+        <GlassCard>
+          <h3 className="text-sm text-gray-400 mb-2">Security (last 7 days)</h3>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={security}>
+                <XAxis dataKey="day" hide />
+                <YAxis hide />
+                <Tooltip contentStyle={{ background: "#141416", border: "none" }} />
+                <Line type="monotone" dataKey="auth_failures" stroke="#ff6fae" strokeWidth={2} />
+                <Line type="monotone" dataKey="rate_limited" stroke="#ffd580" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </GlassCard>
+
+        <GlassCard>
+          <h3 className="text-sm text-gray-400 mb-2">Activity (last 30 days)</h3>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={analytics}>
+                <XAxis dataKey="day" hide />
+                <Tooltip contentStyle={{ background: "#141416", border: "none" }} />
+                <Bar dataKey="approvals" fill="#ff6fae" stackId="a" />
+                <Bar dataKey="uploads" fill="#ffd580" stackId="a" />
+                <Bar dataKey="mockups" fill="#8ecae6" stackId="a" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </GlassCard>
+      </div>
+
+      {/* Users table */}
+      <GlassCard>
+        <h3 className="text-sm text-gray-400 mb-3">Users</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-gray-400">
+              <tr>
+                <th className="text-left py-2">Name</th>
+                <th className="text-left">Email</th>
+                <th className="text-left">Role</th>
+                <th className="text-left">Coins</th>
+                <th className="text-left">Joined</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u:any) => (
+                <tr key={u.id} className="border-t border-white/10">
+                  <td className="py-2">{u.name}</td>
+                  <td>{u.email}</td>
+                  <td>{u.empress_role}</td>
+                  <td>{u.coins_balance ?? 0}</td>
+                  <td>{new Date(u.created_at).toLocaleDateString()}</td>
+                  <td className="text-right">
+                    {u.empress_role === "admin" ? (
+                      <Button onClick={() => promote.mutate({ id: u.id, role: "user" })}>Demote</Button>
+                    ) : (
+                      <Button onClick={() => promote.mutate({ id: u.id, role: "admin" })}>Promote</Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </GlassCard>
+
+      {/* Spend chart */}
+      <GlassCard>
+        <h3 className="text-sm text-gray-400 mb-2">Coins (last 30 days)</h3>
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={spend}>
+              <XAxis dataKey="day" hide />
+              <YAxis hide />
+              <Tooltip contentStyle={{ background: "#141416", border: "none" }} />
+              <Line type="monotone" dataKey="coins_spent" stroke="#ff6fae" strokeWidth={2} />
+              <Line type="monotone" dataKey="coins_granted" stroke="#ffd580" strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </GlassCard>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <GlassCard>
+      <p className="text-xs text-gray-400">{label}</p>
+      <p className="text-2xl font-semibold text-empress-gold">{value}</p>
+    </GlassCard>
+  );
+}
+```
+
+> UI is read-only except for **Promote/Demote** and optional **Grant Coins**. Server still enforces admin rights, so you don’t leak anything if someone finds the route.
+
+---
+
+## 4) Router & Nav
+
+Add a link in your sidebar (only show if `me.empress_role === 'admin'`):
+
+```tsx
+{me?.empress_role === "admin" && (
+  <NavLink to="/dashboard/council" className="...">Council</NavLink>
+)}
+```
+
+And register the route in your client router.
+
+---
+
+## 5) Quick tests (do these now)
+
+* Use an admin account → hit `/dashboard/council`: charts render, users load.
+* Use a normal account → calling `/api/council/metrics` returns 403 JSON `{ error:{ code:"FORBIDDEN" } }`.
+* Promote/demote a user → role changes immediately, admin gate flips accordingly.
+* Trigger a few 401s on purpose → they appear in the Security chart next day (or shorten view window during testing).
+
+---
+
+## 6) Done means done
+
+**Success criteria**
+
+* Admins see live totals, activity, security, and wallet trends.
+* Role changes from the Council reflect across the app.
+* Council API blocked for non-admins at the server layer.
+* Views are performant and don’t punch through RLS.
+
+---
+
+## 7) Next logical payloads
+
+* **12.0 Monetization Scaffold** (coins purchase modal + Square sandbox).
+* **Council → Pricing tab** to edit per-action coin costs.
+* **Alerts:** toggle to notify on auth spikes or rate-limit storms.
+
+Want me to ship the **Monetization Scaffold** as a drop-in (routes, coin pricing table, purchase modal) now, or do you want a brief stabilization pass checklist first?
