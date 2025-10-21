@@ -35,6 +35,7 @@ import ProofPortal from "@/pages/ProofPortal";
 import AssetLibrary from "@/pages/AssetLibrary";
 import ApprovalPublic from "@/pages/approval-public";
 import Council from "@/pages/dashboard/council";
+import DynamicBoards from "@/pages/DynamicBoards";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -89,6 +90,7 @@ function Router() {
       <Route path="/settings/payments">{() => <ProtectedRoute component={PaymentSettings} />}</Route>
       <Route path="/settings/booking-engine">{() => <ProtectedRoute component={BookingEngineSettings} />}</Route>
       <Route path="/dashboard/council">{() => <ProtectedRoute component={Council} />}</Route>
+      <Route path="/dynamic-boards">{() => <ProtectedRoute component={DynamicBoards} />}</Route>
       <Route component={NotFound} />
     </Switch>
   );

@@ -22,6 +22,7 @@ import {
   Kanban,
   FolderOpen,
   Shield,
+  Table,
 } from "lucide-react";
 import {
   Sidebar,
@@ -59,6 +60,7 @@ const menuItems = [
       { title: "Staff Applications", url: "/staff-applications", icon: ClipboardList, testId: "link-staff-applications" },
       { title: "Asset Library", url: "/assets", icon: FolderOpen, testId: "link-assets" },
       { title: "Boards", url: "/boards", icon: LayoutGrid, testId: "link-boards" },
+      { title: "Dynamic Boards", url: "/dynamic-boards", icon: Table, testId: "link-dynamic-boards" },
       { title: "Tasks", url: "/tasks", icon: CheckSquare, testId: "link-tasks" },
       { title: "Calendar", url: "/calendar", icon: CalendarDays, testId: "link-calendar" },
       { title: "Approvals", url: "/approvals", icon: FileImage, testId: "link-approvals" },
