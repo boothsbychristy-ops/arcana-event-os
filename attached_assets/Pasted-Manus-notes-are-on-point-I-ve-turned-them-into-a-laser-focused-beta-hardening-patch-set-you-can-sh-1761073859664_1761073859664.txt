@@ -1,0 +1,215 @@
+Manus’ notes are on-point. I’ve turned them into a laser-focused beta-hardening patch set you can ship now. Where useful, I’ve referenced your actual `package.json` so you can see why I’m recommending each change (scripts at lines 6–12; deps around express/helmet/rate-limit).   
+
+# Tight action plan (do-now)
+
+## 1) Dependency hygiene (safe, repeatable)
+
+* Add a repeatable update flow without surprises:
+
+  ```bash
+  npm i -g npm-check-updates
+  ncu -u               # update ranges in package.json
+  npm i
+  npm audit fix --force
+  npm run check        # tsc
+  npm run build
+  npm run dev
+  ```
+* Lock this into scripts:
+
+  ```json
+  "scripts": {
+    "deps:update": "npx npm-check-updates -u && npm i",
+    "deps:audit": "npm audit --omit=dev || true"
+  }
+  ```
+
+Why: your deps include runtime-critical libs (express, helmet, rate limiting) and deserve a routine. 
+
+---
+
+## 2) Production logging (replace console.log)
+
+Use `pino` + `pino-http` (pretty in dev, structured JSON in prod).
+
+```ts
+// server/log.ts
+import pino from "pino";
+import pinoHttp from "pino-http";
+
+export const logger = pino({
+  level: process.env.LOG_LEVEL || "info",
+  transport: process.env.NODE_ENV === "development"
+    ? { target: "pino-pretty", options: { colorize: true } }
+    : undefined,
+});
+
+export const httpLogger = pinoHttp({ logger });
+```
+
+Wire it:
+
+```ts
+// server/index.ts
+import { httpLogger, logger } from "./log";
+app.use(httpLogger);
+// replace console.log / console.error with logger.info / logger.error
+```
+
+Add request IDs for traceability:
+
+```ts
+import { randomUUID } from "crypto";
+app.use((req,_res,next)=>{ (req as any).id = randomUUID(); next(); });
+```
+
+---
+
+## 3) Error handling with real signal (granular, user-safe)
+
+Map common classes (validation/auth/db) → clear, consistent envelopes.
+
+```ts
+// server/errors.ts
+export class HttpError extends Error {
+  constructor(public status: number, public code: string, msg?: string, public details?: unknown) { super(msg||code); }
+}
+export const E = {
+  BAD_REQUEST: (d?:unknown)=> new HttpError(400,"BAD_REQUEST","Bad request",d),
+  UNAUTHORIZED: ()=> new HttpError(401,"UNAUTHORIZED"),
+  TOKEN_INVALID: ()=> new HttpError(401,"TOKEN_INVALID"),
+  TOKEN_EXPIRED: ()=> new HttpError(403,"TOKEN_EXPIRED"),
+  FORBIDDEN: ()=> new HttpError(403,"FORBIDDEN"),
+  NOT_FOUND: ()=> new HttpError(404,"NOT_FOUND"),
+  SERVER: ()=> new HttpError(500,"SERVER_ERROR"),
+};
+```
+
+```ts
+// server/middleware/errorHandler.ts
+import { HttpError } from "../errors";
+export function errorHandler(err:any, _req,res,_next) {
+  if (err instanceof HttpError) return res.status(err.status).json({ error:{ code:err.code, message:err.message, details:err.details??null }});
+  if (err?.name === "ZodError") return res.status(400).json({ error:{ code:"VALIDATION_ERROR", details: err.issues }});
+  if (err?.code === "TOKEN_EXPIRED") return res.status(403).json({ error:{ code:"TOKEN_EXPIRED" }});
+  if (err?.code === "TOKEN_INVALID") return res.status(401).json({ error:{ code:"TOKEN_INVALID" }});
+  return res.status(500).json({ error:{ code:"SERVER_ERROR" }});
+}
+```
+
+Add a final 404:
+
+```ts
+app.use((_req,res)=>res.status(404).json({ error:{ code:"NOT_FOUND" }}));
+```
+
+This addresses Manus’ “generic error handling” concern while keeping messages user-safe. (Matches your current stack: express, helmet, rate limiting.)  
+
+---
+
+## 4) Validation at the edge (one-liner helper)
+
+```ts
+// server/middleware/validate.ts
+import { ZodSchema } from "zod";
+export const validate = (schema: ZodSchema, part: "body"|"query"|"params" = "body") =>
+  (req,res,next) => {
+    const out = schema.safeParse(req[part]);
+    if (!out.success) return res.status(400).json({ error:{ code:"VALIDATION_ERROR", details: out.error.issues }});
+    req[part] = out.data; next();
+  };
+```
+
+Use it on every route that accepts input (pins, approvals, uploads).
+
+---
+
+## 5) Auth middleware order (no double-run edge cases)
+
+Make “public paths” explicit *before* auth; apply auth once globally after.
+
+```ts
+// server/index.ts
+const PUBLIC = [ /^\/api\/health$/, /^\/api\/approvals\/public/ ];
+app.use((req,res,next)=>{
+  if (PUBLIC.some(rx => rx.test(req.path))) return next();
+  return authMiddleware(req,res,next); // single, global application
+});
+```
+
+This eliminates “authMiddleware possibly called twice” scenarios Manus flagged.
+
+---
+
+## 6) CSP + asset origin (fail fast, configurable)
+
+Add config validation:
+
+```ts
+// server/config.ts
+const assetOrigin = process.env.PUBLIC_ASSET_ORIGIN || "'self'";
+export const CSP_IMG_SRC = [ "'self'", "data:", "blob:", assetOrigin ];
+```
+
+Use it in helmet:
+
+```ts
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "img-src": CSP_IMG_SRC,
+      "style-src": process.env.NODE_ENV === "production" ? ["'self'"] : ["'self'","'unsafe-inline'"],
+      // …
+    }
+  }
+}));
+```
+
+And add `PUBLIC_ASSET_ORIGIN` to `.env.example` so prod never “mysteriously” blocks images.
+
+---
+
+## 7) Uploads: second-layer checks (mime, size, filename)
+
+```ts
+const ALLOWED = new Set(["image/jpeg","image/png","image/webp","application/pdf"]);
+if (!req.file || !ALLOWED.has(req.file.mimetype))
+  return res.status(400).json({ error:{ code:"BAD_MIMETYPE" }});
+if (req.file.size > 10 * 1024 * 1024)
+  return res.status(400).json({ error:{ code:"FILE_TOO_LARGE" }});
+const safeName = req.file.originalname.replace(/[^\w.\-]/g, "_").slice(0,120);
+```
+
+---
+
+## 8) Tiny test add (protect regressions)
+
+Write 4 supertests:
+
+* 401 vs 403: invalid vs expired token
+* 410 Gone on expired public link
+* rate limit trips on `/approvals/public/:token` after 30+ hits/min
+* validation error shape on bad pin payload
+
+These live right alongside your existing test deps (supertest already present). 
+
+---
+
+# Why this maps 1:1 to Manus’ report
+
+* **Outdated deps:** add `deps:update` cadence instead of YOLO updates.  
+* **Generic errors:** structured `HttpError` + Zod mapping.  
+* **CSP asset origin:** env-validated `PUBLIC_ASSET_ORIGIN`.  
+* **console.log in prod:** upgrade to `pino` structured logs.  
+* **auth middleware ordering:** single global application after public-route gate.  
+
+---
+
+## Micro follow-ups (fast polish)
+
+* Remove the duplicate Council nav link (cosmetic, but clean).
+* Add `LOG_LEVEL=info` to prod env.
+* Ship a small “Errors” panel in Council (count by `code` last 7d) so you can *see* if validation or auth errors spike post-beta.
+
+If you want, I can bundle these into a minimal PR plan (file paths + patch hunks) so you can paste them straight into Replit and commit.
