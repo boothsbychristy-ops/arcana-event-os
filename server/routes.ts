@@ -2173,6 +2173,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(events);
   });
 
+  // Mount Council routes (admin only)
+  const council = await import("./routes/council");
+  app.use("/api/council", council.default);
+
   const httpServer = createServer(app);
   return httpServer;
 }

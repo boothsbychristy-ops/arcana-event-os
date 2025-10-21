@@ -74,6 +74,9 @@ app.use(assetRoutes);
 import { approvalsPublicRouter } from "./routes/approvals.public";
 app.use("/api/approvals/public", approvalsPublicRouter);
 
+// Import council routes
+import council from "./routes/council";
+
 // Security: Safe metadata logging (no PII in logs)
 app.use((req, res, next) => {
   const start = Date.now();

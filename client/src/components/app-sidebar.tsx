@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { useAuth } from "@/contexts/auth-context";
 import {
   LayoutDashboard,
   Users,
@@ -20,6 +21,7 @@ import {
   FileImage,
   Kanban,
   FolderOpen,
+  Shield,
 } from "lucide-react";
 import {
   Sidebar,
@@ -75,10 +77,28 @@ const menuItems = [
 ];
 
 export function AppSidebar() {
+  const { user } = useAuth();
+  const isAdmin = user?.empressRole === "admin";
+
+  // Add Council to the menu items if user is admin
+  const allMenuItems = [...menuItems];
+  if (isAdmin) {
+    // Find the Settings group or create it if it doesn't exist
+    const settingsGroup = allMenuItems.find(group => group.group === "Settings");
+    if (settingsGroup) {
+      settingsGroup.items.push({
+        title: "Council Dashboard", 
+        url: "/dashboard/council", 
+        icon: Shield, 
+        testId: "link-council"
+      });
+    }
+  }
+
   return (
     <Sidebar>
       <SidebarContent>
-        {menuItems.map((section) => (
+        {allMenuItems.map((section) => (
           <SidebarGroup key={section.group}>
             <SidebarGroupLabel>{section.group}</SidebarGroupLabel>
             <SidebarGroupContent>

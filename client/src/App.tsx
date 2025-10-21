@@ -33,6 +33,7 @@ import Pipeline from "@/pages/Pipeline";
 import ProofPortal from "@/pages/ProofPortal";
 import AssetLibrary from "@/pages/AssetLibrary";
 import ApprovalPublic from "@/pages/approval-public";
+import Council from "@/pages/dashboard/council";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -86,6 +87,7 @@ function Router() {
       <Route path="/assets">{() => <ProtectedRoute component={AssetLibrary} />}</Route>
       <Route path="/settings/payments">{() => <ProtectedRoute component={PaymentSettings} />}</Route>
       <Route path="/settings/booking-engine">{() => <ProtectedRoute component={BookingEngineSettings} />}</Route>
+      <Route path="/dashboard/council">{() => <ProtectedRoute component={Council} />}</Route>
       <Route component={NotFound} />
     </Switch>
   );

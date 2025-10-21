@@ -7,6 +7,7 @@ interface User {
   fullName: string;
   role: string;
   avatarUrl?: string | null;
+  empressRole?: string; // admin or user - for council features
 }
 
 interface AuthContextType {

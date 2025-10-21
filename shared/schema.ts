@@ -22,6 +22,7 @@ export const users = pgTable("users", {
   fullName: text("full_name").notNull(),
   role: text("role").notNull().default("client"), // owner, admin, staff, client
   avatarUrl: text("avatar_url"),
+  empressRole: text("empress_role").default("user"), // admin, user - for council features
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -413,7 +414,7 @@ export const automationLogs = pgTable("automation_logs", {
   context: jsonb("context").default({}),
 });
 
-// Approvals for client design review and feedback
+// Approvals for client design review and feedback with expiry and view tracking
 export const approvals = pgTable("approvals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
@@ -425,6 +426,9 @@ export const approvals = pgTable("approvals", {
   assetsJson: jsonb("assets_json").default({}), // Store selected backgrounds, templates, etc.
   shareToken: text("share_token").unique(), // For public sharing
   feedbackNotes: text("feedback_notes"),
+  shareExpiresAt: timestamp("share_expires_at"), // Link expiry time
+  viewsCount: integer("views_count").default(0), // Number of times viewed
+  lastViewedAt: timestamp("last_viewed_at"), // Last time the link was viewed
   approvedAt: timestamp("approved_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -470,7 +474,7 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-// Design proofs for client review
+// Design proofs for client review with versioning
 export const proofs = pgTable("proofs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
@@ -481,20 +485,26 @@ export const proofs = pgTable("proofs", {
   mirrorMeta: jsonb("mirror_meta").default({}),
   status: text("status").notNull().default("pending"), // pending | approved | changes_requested
   clientComment: text("client_comment"),
+  version: integer("version").default(1), // Version tracking
+  prevProofId: varchar("prev_proof_id"), // Link to previous version - reference added later to avoid circular dependency
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-// Comments on proofs
+// Comments on proofs with pins and reasons
 export const proofComments = pgTable("proof_comments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   proofId: varchar("proof_id").references(() => proofs.id, { onDelete: "cascade" }).notNull(),
   author: text("author").notNull(), // "Client" | "Admin"
   message: text("message").notNull(),
+  x: decimal("x"), // Pin x coordinate (0-1)
+  y: decimal("y"), // Pin y coordinate (0-1)
+  zoom: decimal("zoom"), // Zoom level when pin was placed
+  reason: text("reason").default("other"), // logo, color, text, other
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Asset library for uploaded and generated files
+// Asset library for uploaded and generated files with derivatives and soft delete
 export const assets = pgTable("assets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }),
@@ -507,6 +517,9 @@ export const assets = pgTable("assets", {
   tags: text("tags").array(),
   mirrorMeta: jsonb("mirror_meta").default({}),
   sizeKb: decimal("size_kb", { precision: 10, scale: 2 }),
+  derivatives: jsonb("derivatives").default({}), // {320: url, 640: url, 1280: url}
+  alt: text("alt"), // Alt text for accessibility
+  deletedAt: timestamp("deleted_at"), // Soft delete support
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -559,6 +572,24 @@ export const mirrorTx = pgTable("mirror_tx", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Tenant watermark settings
+export const tenantSettings = pgTable("tenant_settings", {
+  tenantId: varchar("tenant_id").primaryKey(),
+  watermarkEnabled: boolean("watermark_enabled").default(true),
+  watermarkText: text("watermark_text").default("Proof — Rainbow CRM"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Council alert configurations
+export const councilAlerts = pgTable("council_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").unique(), // approval_median_hours, etc
+  threshold: decimal("threshold").notNull(),
+  direction: text("direction").notNull(), // above, below
+  enabled: boolean("enabled").default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
@@ -606,6 +637,8 @@ export const insertUserPrefSchema = createInsertSchema(userPrefs).omit({ id: tru
 export const insertAnalyticsEventSchema = createInsertSchema(analyticsEvents).omit({ id: true, createdAt: true });
 export const insertMirrorWalletSchema = createInsertSchema(mirrorWallets).omit({ updatedAt: true });
 export const insertMirrorTxSchema = createInsertSchema(mirrorTx).omit({ id: true, createdAt: true });
+export const insertTenantSettingsSchema = createInsertSchema(tenantSettings).omit({ createdAt: true });
+export const insertCouncilAlertSchema = createInsertSchema(councilAlerts).omit({ id: true, createdAt: true });
 
 // TypeScript types
 export type User = typeof users.$inferSelect;
