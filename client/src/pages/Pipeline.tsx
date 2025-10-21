@@ -250,12 +250,12 @@ export default function Pipeline() {
           <p className="text-muted-foreground">Track your events from lead to completion</p>
         </div>
         <div className="flex items-center gap-4">
-          <Select value={selectedClient || ""} onValueChange={(value) => setSelectedClient(value || null)}>
+          <Select value={selectedClient || "all"} onValueChange={(value) => setSelectedClient(value === "all" ? null : value)}>
             <SelectTrigger className="w-[200px]" data-testid="select-client-filter">
               <SelectValue placeholder="All clients" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All clients</SelectItem>
+              <SelectItem value="all">All clients</SelectItem>
               {clients.map(client => (
                 <SelectItem key={client.id} value={client.id}>
                   {client.fullName}
