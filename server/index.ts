@@ -132,6 +132,16 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Centralized 404 handler for all unmatched API routes
+  app.use("/api/*", (_req: Request, res: Response) => {
+    res.status(404).json({
+      error: {
+        code: "NOT_FOUND",
+        message: "Route not found"
+      }
+    });
+  });
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
