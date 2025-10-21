@@ -127,6 +127,36 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+### Phase 11.3 Security & Validation Patch (October 21, 2025)
+
+**Production-Ready Security Enhancements:**
+
+1. **Request Validation Middleware**
+   - Zod-based validation for all endpoints (server/middleware/validate.ts)
+   - Type-safe request handling with detailed error messages
+   - Schemas for pins, approvals, roles, pagination
+
+2. **Public Link Security**
+   - Rate limiting: 30 requests/minute per IP on public routes
+   - Link expiry with 410 Gone responses
+   - View tracking and receipts
+
+3. **Upload Security**
+   - MIME type validation (images: jpeg/png/webp, documents: pdf)
+   - File size limits (10MB images, 25MB documents)
+   - Filename sanitization against directory traversal
+   - Blocks suspicious extensions (.php, .exe, etc.)
+
+4. **Error Handling**
+   - Centralized 404 handler for unmatched routes
+   - Consistent error envelope: `{error: {code, message}}`
+   - No stack trace leakage in production
+
+5. **UI Enhancements**
+   - Footer with security badges (GDPR, Encrypted)
+   - "Report a bug" link to beta@rainbowcrm.com
+   - Fixed duplicate sidebar navigation items
+
 ### Security Hardening (October 16, 2025)
 
 **Comprehensive security implementation with defense-in-depth architecture:**
