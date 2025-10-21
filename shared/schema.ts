@@ -612,6 +612,10 @@ export const insertBoardSchema = createInsertSchema(boards).omit({ id: true, cre
 export const insertBoardGroupSchema = createInsertSchema(boardGroups).omit({ id: true, createdAt: true });
 export const insertTaskStatusSchema = createInsertSchema(taskStatuses).omit({ id: true });
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true, completedAt: true });
+export const insertDynamicBoardSchema = createInsertSchema(dynamicBoards).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDynamicFieldSchema = createInsertSchema(dynamicFields).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDynamicItemSchema = createInsertSchema(dynamicItems).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDynamicFieldValueSchema = createInsertSchema(dynamicFieldValues).omit({ id: true, updatedAt: true });
 export const insertTaskCommentSchema = createInsertSchema(taskComments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTaskAttachmentSchema = createInsertSchema(taskAttachments).omit({ id: true, createdAt: true });
 export const insertSubtaskSchema = createInsertSchema(subtasks).omit({ id: true, createdAt: true, completedAt: true });
@@ -697,6 +701,18 @@ export type InsertBoard = z.infer<typeof insertBoardSchema>;
 
 export type BoardGroup = typeof boardGroups.$inferSelect;
 export type InsertBoardGroup = z.infer<typeof insertBoardGroupSchema>;
+
+export type DynamicBoard = typeof dynamicBoards.$inferSelect;
+export type InsertDynamicBoard = z.infer<typeof insertDynamicBoardSchema>;
+
+export type DynamicField = typeof dynamicFields.$inferSelect;
+export type InsertDynamicField = z.infer<typeof insertDynamicFieldSchema>;
+
+export type DynamicItem = typeof dynamicItems.$inferSelect;
+export type InsertDynamicItem = z.infer<typeof insertDynamicItemSchema>;
+
+export type DynamicFieldValue = typeof dynamicFieldValues.$inferSelect;
+export type InsertDynamicFieldValue = z.infer<typeof insertDynamicFieldValueSchema>;
 
 export type TaskStatus = typeof taskStatuses.$inferSelect;
 export type InsertTaskStatus = z.infer<typeof insertTaskStatusSchema>;
