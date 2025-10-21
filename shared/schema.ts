@@ -440,6 +440,125 @@ export const agentLogs = pgTable("agent_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ========== ENHANCED RAINBOW CRM FEATURES ==========
+
+// Events linked to clients
+export const events = pgTable("events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id, { onDelete: "cascade" }).notNull(),
+  title: text("title").notNull(),
+  eventDate: timestamp("event_date"),
+  location: text("location"),
+  budget: decimal("budget", { precision: 10, scale: 2 }),
+  notes: text("notes"),
+  stage: text("stage").notNull().default("planning"), // planning | design | production | delivery
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Projects (design/asset work linked to events)
+export const projects = pgTable("projects", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventId: varchar("event_id").references(() => events.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  type: text("type"), // overlay | backdrop | ai_prompt | video
+  status: text("status").notNull().default("in_progress"), // in_progress | waiting_approval | approved
+  dueDate: timestamp("due_date"),
+  assigneeId: varchar("assignee_id").references(() => users.id),
+  mirrorMeta: jsonb("mirror_meta").default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Design proofs for client review
+export const proofs = pgTable("proofs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }).notNull(),
+  token: varchar("token").notNull().unique().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  imageUrl: text("image_url"),
+  thumbnailUrl: text("thumbnail_url"),
+  mirrorMeta: jsonb("mirror_meta").default({}),
+  status: text("status").notNull().default("pending"), // pending | approved | changes_requested
+  clientComment: text("client_comment"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Comments on proofs
+export const proofComments = pgTable("proof_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  proofId: varchar("proof_id").references(() => proofs.id, { onDelete: "cascade" }).notNull(),
+  author: text("author").notNull(), // "Client" | "Admin"
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Asset library for uploaded and generated files
+export const assets = pgTable("assets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type"), // image/png, image/jpeg, video/mp4, etc
+  fileUrl: text("file_url").notNull(),
+  thumbnailUrl: text("thumbnail_url"),
+  category: text("category").notNull().default("upload"), // upload | overlay | backdrop | ai_render | video
+  tags: text("tags").array(),
+  mirrorMeta: jsonb("mirror_meta").default({}),
+  sizeKb: decimal("size_kb", { precision: 10, scale: 2 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// System logs for automation and health monitoring
+export const systemLogs = pgTable("system_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source: text("source").notNull(), // webhook | client | server | health
+  level: text("level").notNull().default("info"),
+  message: text("message").notNull(),
+  meta: jsonb("meta").default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// User preferences for notifications and settings
+export const userPrefs = pgTable("user_prefs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }).notNull().unique(),
+  receiveEmails: boolean("receive_emails").notNull().default(true),
+  timezone: text("timezone").notNull().default("UTC"),
+  dailyDigest: boolean("daily_digest").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Analytics events for tracking and insights
+export const analyticsEvents = pgTable("analytics_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(), // proof_approved, asset_uploaded, client_created, etc
+  entityId: varchar("entity_id"),
+  entityTable: text("entity_table"),
+  meta: jsonb("meta").default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Mirror Protocol wallets for coin accounting
+export const mirrorWallets = pgTable("mirror_wallets", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  balance: integer("balance").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Mirror Protocol transaction logs
+export const mirrorTx = pgTable("mirror_tx", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  delta: integer("delta").notNull(), // negative = spend
+  reason: text("reason").notNull(), // mockup, reverse_vision, etc
+  meta: jsonb("meta").default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
@@ -477,6 +596,16 @@ export const insertAutomationSchema = createInsertSchema(automations).omit({ id:
 export const insertAutomationLogSchema = createInsertSchema(automationLogs).omit({ id: true, runAt: true });
 export const insertApprovalSchema = createInsertSchema(approvals).omit({ id: true, createdAt: true, approvedAt: true });
 export const insertAgentLogSchema = createInsertSchema(agentLogs).omit({ id: true, createdAt: true });
+export const insertEventSchema = createInsertSchema(events).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertProofSchema = createInsertSchema(proofs).omit({ id: true, token: true, createdAt: true, updatedAt: true });
+export const insertProofCommentSchema = createInsertSchema(proofComments).omit({ id: true, createdAt: true });
+export const insertAssetSchema = createInsertSchema(assets).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertSystemLogSchema = createInsertSchema(systemLogs).omit({ id: true, createdAt: true });
+export const insertUserPrefSchema = createInsertSchema(userPrefs).omit({ id: true, createdAt: true });
+export const insertAnalyticsEventSchema = createInsertSchema(analyticsEvents).omit({ id: true, createdAt: true });
+export const insertMirrorWalletSchema = createInsertSchema(mirrorWallets).omit({ updatedAt: true });
+export const insertMirrorTxSchema = createInsertSchema(mirrorTx).omit({ id: true, createdAt: true });
 
 // TypeScript types
 export type User = typeof users.$inferSelect;
@@ -580,6 +709,36 @@ export type InsertApproval = z.infer<typeof insertApprovalSchema>;
 
 export type AgentLog = typeof agentLogs.$inferSelect;
 export type InsertAgentLog = z.infer<typeof insertAgentLogSchema>;
+
+export type Event = typeof events.$inferSelect;
+export type InsertEvent = z.infer<typeof insertEventSchema>;
+
+export type Project = typeof projects.$inferSelect;
+export type InsertProject = z.infer<typeof insertProjectSchema>;
+
+export type Proof = typeof proofs.$inferSelect;
+export type InsertProof = z.infer<typeof insertProofSchema>;
+
+export type ProofComment = typeof proofComments.$inferSelect;
+export type InsertProofComment = z.infer<typeof insertProofCommentSchema>;
+
+export type Asset = typeof assets.$inferSelect;
+export type InsertAsset = z.infer<typeof insertAssetSchema>;
+
+export type SystemLog = typeof systemLogs.$inferSelect;
+export type InsertSystemLog = z.infer<typeof insertSystemLogSchema>;
+
+export type UserPref = typeof userPrefs.$inferSelect;
+export type InsertUserPref = z.infer<typeof insertUserPrefSchema>;
+
+export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+export type InsertAnalyticsEvent = z.infer<typeof insertAnalyticsEventSchema>;
+
+export type MirrorWallet = typeof mirrorWallets.$inferSelect;
+export type InsertMirrorWallet = z.infer<typeof insertMirrorWalletSchema>;
+
+export type MirrorTx = typeof mirrorTx.$inferSelect;
+export type InsertMirrorTx = z.infer<typeof insertMirrorTxSchema>;
 
 // Auth schemas
 export const loginSchema = z.object({
