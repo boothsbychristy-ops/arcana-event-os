@@ -180,6 +180,22 @@ Preferred communication style: Simple, everyday language.
 **Security Score:** 🟢 10/10 - Production Hardened
 **Documentation:** See production hardening notes above for deployment checklist
 
+### Phase 11.5 Sidebar Duplication Fix (October 21, 2025)
+
+**Bug Fix:** Fixed sidebar duplication caused by HMR array mutation.
+
+**Issue:** The "Council Dashboard" link appeared multiple times in the sidebar after hot module reload or page refresh due to shallow array copying in `app-sidebar.tsx`.
+
+**Root Cause:** The code used `[...menuItems]` which creates a shallow copy—the group objects inside were still references to the original. When pushing to `settingsGroup.items`, it mutated the original `menuItems` array, causing duplicates on each HMR reload.
+
+**Solution:**
+1. **Deep copy** - Changed to `menuItems.map(group => ({ ...group, items: [...group.items] }))` to properly copy both groups and their items arrays
+2. **Guard check** - Added `!settingsGroup.items.some(item => item.url === "/dashboard/council")` to prevent duplicate additions
+
+**Test Result:** ✅ Verified exactly one "Council Dashboard" link appears before and after page reload.
+
+**File Modified:** `client/src/components/app-sidebar.tsx`
+
 ### Security Hardening (October 16, 2025)
 
 **Comprehensive security implementation with defense-in-depth architecture:**
