@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { Footer } from "@/components/Footer";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -140,6 +141,7 @@ function AppLayout() {
           <main className="flex-1 overflow-auto bg-background">
             <Router />
           </main>
+          <Footer />
         </div>
       </div>
     </SidebarProvider>
