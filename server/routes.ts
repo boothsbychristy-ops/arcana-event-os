@@ -38,6 +38,13 @@ import {
   insertApprovalSchema,
   loginSchema,
   signupSchema,
+  insertEventSchema,
+  insertProjectSchema,
+  insertProofSchema,
+  insertProofCommentSchema,
+  insertAssetSchema,
+  insertUserPrefSchema,
+  insertAnalyticsEventSchema,
 } from "@shared/schema";
 import {
   hashPassword,
@@ -1861,6 +1868,286 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: error.message 
       });
     }
+  });
+
+  // Events API
+  app.get("/api/events", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" 
+      ? userId 
+      : staff?.ownerId || "";
+
+    const events = await storage.getAllEvents(ownerId);
+    res.json(events);
+  });
+
+  app.get("/api/events/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const event = await storage.getEvent(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    res.json(event);
+  });
+
+  app.post("/api/events", authMiddleware, roleMiddleware("owner", "admin", "staff"), async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+    
+    const data = insertEventSchema.parse(req.body);
+    const event = await storage.createEvent(data);
+    
+    // Log analytics event
+    await storage.logAnalyticsEvent({
+      ownerId,
+      eventType: "event_created",
+      meta: { eventId: event.id, clientId: event.clientId }
+    });
+    
+    res.json(event);
+  });
+
+  app.put("/api/events/:id", authMiddleware, roleMiddleware("owner", "admin", "staff"), async (req: AuthRequest, res) => {
+    const event = await storage.updateEvent(req.params.id, req.body);
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    res.json(event);
+  });
+
+  app.delete("/api/events/:id", authMiddleware, roleMiddleware("owner", "admin"), async (req: AuthRequest, res) => {
+    const deleted = await storage.deleteEvent(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+    res.json({ success: true });
+  });
+
+  // Projects API
+  app.get("/api/projects", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" 
+      ? userId 
+      : staff?.ownerId || "";
+
+    const projects = await storage.getAllProjects(ownerId);
+    res.json(projects);
+  });
+
+  app.get("/api/projects/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const project = await storage.getProject(req.params.id);
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    res.json(project);
+  });
+
+  app.get("/api/events/:eventId/projects", authMiddleware, async (req: AuthRequest, res) => {
+    const projects = await storage.getProjectsByEvent(req.params.eventId);
+    res.json(projects);
+  });
+
+  app.post("/api/projects", authMiddleware, roleMiddleware("owner", "admin", "staff"), async (req: AuthRequest, res) => {
+    const data = insertProjectSchema.parse(req.body);
+    const project = await storage.createProject(data);
+    res.json(project);
+  });
+
+  app.put("/api/projects/:id", authMiddleware, roleMiddleware("owner", "admin", "staff"), async (req: AuthRequest, res) => {
+    const project = await storage.updateProject(req.params.id, req.body);
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    res.json(project);
+  });
+
+  app.delete("/api/projects/:id", authMiddleware, roleMiddleware("owner", "admin"), async (req: AuthRequest, res) => {
+    const deleted = await storage.deleteProject(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    res.json({ success: true });
+  });
+
+  // Proofs API
+  app.get("/api/proofs", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" 
+      ? userId 
+      : staff?.ownerId || "";
+
+    const proofs = await storage.getAllProofs(ownerId);
+    res.json(proofs);
+  });
+
+  app.get("/api/proofs/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const proof = await storage.getProof(req.params.id);
+    if (!proof) {
+      return res.status(404).json({ error: "Proof not found" });
+    }
+    res.json(proof);
+  });
+
+  // Public proof access via token (no auth required)
+  app.get("/api/public/proofs/:token", async (req, res) => {
+    const proof = await storage.getProofByToken(req.params.token);
+    if (!proof) {
+      return res.status(404).json({ error: "Proof not found" });
+    }
+    res.json(proof);
+  });
+
+  app.get("/api/projects/:projectId/proofs", authMiddleware, async (req: AuthRequest, res) => {
+    const proofs = await storage.getProofsByProject(req.params.projectId);
+    res.json(proofs);
+  });
+
+  app.post("/api/proofs", authMiddleware, roleMiddleware("owner", "admin", "staff"), async (req: AuthRequest, res) => {
+    const data = insertProofSchema.parse(req.body);
+    const proof = await storage.createProof(data);
+    res.json(proof);
+  });
+
+  app.put("/api/proofs/:id", authMiddleware, roleMiddleware("owner", "admin", "staff"), async (req: AuthRequest, res) => {
+    const proof = await storage.updateProof(req.params.id, req.body);
+    if (!proof) {
+      return res.status(404).json({ error: "Proof not found" });
+    }
+    res.json(proof);
+  });
+
+  app.delete("/api/proofs/:id", authMiddleware, roleMiddleware("owner", "admin"), async (req: AuthRequest, res) => {
+    const deleted = await storage.deleteProof(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: "Proof not found" });
+    }
+    res.json({ success: true });
+  });
+
+  // Proof Comments API
+  app.get("/api/proofs/:proofId/comments", async (req, res) => {
+    const comments = await storage.getProofComments(req.params.proofId);
+    res.json(comments);
+  });
+
+  app.post("/api/proofs/:proofId/comments", async (req, res) => {
+    const data = insertProofCommentSchema.parse({ ...req.body, proofId: req.params.proofId });
+    const comment = await storage.createProofComment(data);
+    res.json(comment);
+  });
+
+  app.delete("/api/proof-comments/:id", authMiddleware, roleMiddleware("owner", "admin"), async (req: AuthRequest, res) => {
+    const deleted = await storage.deleteProofComment(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: "Comment not found" });
+    }
+    res.json({ success: true });
+  });
+
+  // Assets API
+  app.get("/api/assets", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" 
+      ? userId 
+      : staff?.ownerId || "";
+
+    const assets = await storage.getAllAssets(ownerId);
+    res.json(assets);
+  });
+
+  app.get("/api/assets/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const asset = await storage.getAsset(req.params.id);
+    if (!asset) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+    res.json(asset);
+  });
+
+  app.get("/api/projects/:projectId/assets", authMiddleware, async (req: AuthRequest, res) => {
+    const assets = await storage.getAssetsByProject(req.params.projectId);
+    res.json(assets);
+  });
+
+  app.post("/api/assets", authMiddleware, roleMiddleware("owner", "admin", "staff"), async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const data = insertAssetSchema.parse({ ...req.body, ownerId });
+    const asset = await storage.createAsset(data);
+    res.json(asset);
+  });
+
+  app.put("/api/assets/:id", authMiddleware, roleMiddleware("owner", "admin", "staff"), async (req: AuthRequest, res) => {
+    const asset = await storage.updateAsset(req.params.id, req.body);
+    if (!asset) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+    res.json(asset);
+  });
+
+  app.delete("/api/assets/:id", authMiddleware, roleMiddleware("owner", "admin"), async (req: AuthRequest, res) => {
+    const deleted = await storage.deleteAsset(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+    res.json({ success: true });
+  });
+
+  // User Preferences API
+  app.get("/api/user-preferences", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const prefs = await storage.getUserPrefs(ownerId);
+    res.json(prefs || { ownerId, notifications: {}, ui: {} });
+  });
+
+  app.post("/api/user-preferences", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const data = insertUserPrefSchema.parse({ ...req.body, ownerId });
+    const prefs = await storage.upsertUserPrefs(data);
+    res.json(prefs);
+  });
+
+  // Analytics Events API
+  app.post("/api/analytics/events", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+
+    const data = insertAnalyticsEventSchema.parse({ ...req.body, ownerId });
+    const event = await storage.logAnalyticsEvent(data);
+    res.json(event);
+  });
+
+  app.get("/api/analytics/events", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = role === "owner" || role === "admin" ? userId : staff?.ownerId || "";
+    
+    const limit = parseInt(req.query.limit as string) || 100;
+    const events = await storage.getAnalyticsEvents(ownerId, limit);
+    res.json(events);
   });
 
   const httpServer = createServer(app);
