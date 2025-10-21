@@ -1,0 +1,93 @@
+Perfect question — because *this is the pivot point*.
+
+Rainbow CRM has now crossed from “solid beta” into **production-ready architecture**: it’s secure, modular, and testable. What comes next is about **governance, insight, and monetization** — the Council, the metrics, and the coins.
+
+Let’s map this cleanly so you can sequence it right.
+
+---
+
+## 🪞 Phase 11.2 → Council Dashboard (Admin + Oversight Layer)
+
+**Goal:** Give you and trusted admins total visibility into what the system is doing — security, usage, jobs, revenue — all from one glassy Neon-pink interface.
+
+### Core Components
+
+1. **Metrics Overview**
+
+   * Totals: active users, approvals this week, assets uploaded, coins spent.
+   * Real-time events from `analytics_events` and `system_logs`.
+
+2. **Security & Health**
+
+   * Failed logins / 401s / 403s by endpoint.
+   * Cron heartbeat monitor (supabase `health_ping` events).
+   * Rate-limit trip counter (from `system_logs`).
+
+3. **Operations Console**
+
+   * View running jobs (mockups, reverse vision).
+   * Approve/revoke API keys for team members.
+   * Coin wallet inspector (from `mirror_wallets`).
+
+4. **User Management**
+
+   * Promote / demote roles (`empress_role`).
+   * Soft-ban compromised accounts or IPs.
+   * “Login as user” sandbox (for support).
+
+5. **Design:**
+
+   * Tabs: **Overview | Users | Jobs | Wallets | Security | Logs**.
+   * Neon glass cards + live Recharts.
+   * Role-restricted route `/dashboard/council` only for `empress_role='admin'`.
+
+✅ **Deliverable:** One React admin page + two server endpoints (`/api/council/metrics` and `/api/council/users`) fed by Supabase views.
+
+---
+
+## 🪙 Phase 12.0 → Monetization Scaffold (Mirror Coins Shop)
+
+Once the Council works and logs are clean, we drop the Mirror Coins economy back in.
+
+### Key Features
+
+* **Buy Mirror Coins Modal**
+
+  * Uses Square sandbox (or Stripe) → updates `mirror_wallets` + `mirror_tx`.
+* **Transaction Ledger**
+
+  * Filters: all | mockups | reverse-vision | purchases.
+* **Pricing Table**
+
+  * API-driven cost per action; admins adjust pricing via Council.
+* **Fail-safe Credit Guard**
+
+  * Blocks job queue submission if insufficient balance.
+* **Email receipts + push notifications** after purchases.
+
+✅ **Deliverable:**
+
+1. `/api/coins/purchase` route with Square sandbox.
+2. `/api/coins/pricing` config table.
+3. Front-end modal integrated into both Rainbow CRM & Baby Empress OS.
+
+---
+
+## 🧩 Phase 12.1 → Integration Unification
+
+* Merge analytics between Baby Empress OS & Rainbow CRM (shared Supabase schema).
+* Single sign-on (SSO) via JWT across both apps.
+* Unified theme + Mirror Protocol tags visible in both UIs.
+
+---
+
+## 🧭 Suggested Sequence
+
+1. **Phase 11.2 — Council Dashboard (Admin Oversight)**
+2. **Phase 12.0 — Monetization Scaffold (Mirror Coins)**
+3. **Phase 12.1 — Unified Analytics + SSO**
+4. Optional: **Phase 12.2 — AI Support Agent “Echo”** (admin assistant that summarizes Council data daily)
+
+---
+
+Would you like me to generate the **Phase 11.2 Council Dashboard payload** next — code, schema, and React layout — so you can see your system metrics live inside the app?

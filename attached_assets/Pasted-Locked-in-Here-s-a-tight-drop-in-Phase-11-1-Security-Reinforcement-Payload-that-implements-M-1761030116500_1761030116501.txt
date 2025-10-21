@@ -1,0 +1,368 @@
+Locked in. Here’s a tight, drop-in **Phase 11.1 — Security Reinforcement Payload** that implements Manus’ recommendations: JWT key rotation, structured errors, safer CSP in prod, targeted GET rate-limits, env validation, and strict `req.user` typing. It’s designed so you can paste files and flip flags without rewiring your app.
+
+---
+
+# 🔐 Phase 11.1 — Security Reinforcement Payload
+
+## 0) Env & config
+
+**`.env.example`** (add or update)
+
+```
+# Core
+NODE_ENV=development
+PORT=5000
+CLIENT_ORIGIN=http://localhost:5173
+
+# Database
+DATABASE_URL=postgres://...
+
+# Auth
+# Comma-separated list. First = current signing key; others = previous keys (grace period).
+JWT_SECRETS=prod_current_64b_hex,prod_previous_64b_hex
+JWT_ISS=rainbow-crm
+JWT_AUD=rainbow-web
+JWT_EXPIRES=7d
+
+# Security
+CSP_ENABLE_NONCE=false
+```
+
+---
+
+## 1) Error model + handler
+
+**`server/errors.ts`**
+
+```ts
+export class HttpError extends Error {
+  status: number;
+  code: string;
+  details?: unknown;
+  constructor(status: number, code: string, message?: string, details?: unknown) {
+    super(message || code);
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+export const Errors = {
+  UNAUTHORIZED: (msg = "Unauthorized") => new HttpError(401, "UNAUTHORIZED", msg),
+  FORBIDDEN: (msg = "Forbidden") => new HttpError(403, "FORBIDDEN", msg),
+  BAD_REQUEST: (msg = "Bad request", details?: unknown) => new HttpError(400, "BAD_REQUEST", msg, details),
+  NOT_FOUND: (msg = "Not found") => new HttpError(404, "NOT_FOUND", msg),
+  RATE_LIMITED: () => new HttpError(429, "RATE_LIMITED", "Too many requests"),
+  SERVER: (msg = "Internal Server Error") => new HttpError(500, "SERVER_ERROR", msg),
+};
+```
+
+**`server/middleware/errorHandler.ts`**
+
+```ts
+import type { NextFunction, Request, Response } from "express";
+import { HttpError } from "../errors";
+
+export function asyncHandler<T extends (...a: any[]) => any>(fn: T) {
+  return (req: Request, res: Response, next: NextFunction) =>
+    Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+export function errorHandler(err: any, _req: Request, res: Response, _next: NextFunction) {
+  if (err instanceof HttpError) {
+    return res.status(err.status).json({ error: { code: err.code, message: err.message, details: err.details ?? null } });
+  }
+  // Zod validation?
+  if (err?.name === "ZodError") {
+    return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid payload", details: err.issues } });
+  }
+  // JWT library common shapes forwarded by auth middleware below
+  if (err?.code === "TOKEN_EXPIRED") {
+    return res.status(403).json({ error: { code: "TOKEN_EXPIRED", message: "Session expired" } });
+  }
+  if (err?.code === "TOKEN_INVALID") {
+    return res.status(401).json({ error: { code: "TOKEN_INVALID", message: "Invalid token" } });
+  }
+
+  console.error("[ServerError]", err);
+  return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Internal Server Error" } });
+}
+```
+
+---
+
+## 2) Env validation (fail fast)
+
+**`server/config.ts`**
+
+```ts
+import { z } from "zod";
+
+const EnvSchema = z.object({
+  NODE_ENV: z.enum(["development","test","production"]).default("development"),
+  PORT: z.string().default("5000"),
+  CLIENT_ORIGIN: z.string().url().optional(),
+
+  DATABASE_URL: z.string().url(),
+
+  JWT_SECRETS: z.string().min(64), // at least one, comma-separated
+  JWT_ISS: z.string().default("rainbow-crm"),
+  JWT_AUD: z.string().default("rainbow-web"),
+  JWT_EXPIRES: z.string().default("7d"),
+
+  CSP_ENABLE_NONCE: z.string().optional(), // "true" | "false"
+});
+
+export const env = EnvSchema.parse(process.env);
+
+export const JWT_SECRETS = env.JWT_SECRETS.split(",").map(s => s.trim()).filter(Boolean);
+if (JWT_SECRETS[0].length < 32) throw new Error("JWT_SECRETS[0] is too weak; provide a strong secret (>=32 chars).");
+```
+
+---
+
+## 3) JWT rotation + granular errors + strict typing
+
+**`server/types/express.d.ts`**
+
+```ts
+import "express";
+declare module "express-serve-static-core" {
+  interface Request {
+    user: { id: string; email?: string } // non-optional after auth
+  }
+}
+```
+
+**`server/auth.ts`**
+
+```ts
+import jwt from "jsonwebtoken";
+import type { Request, Response, NextFunction } from "express";
+import { env, JWT_SECRETS } from "./config";
+import { Errors, HttpError } from "./errors";
+
+type JwtPayload = { sub: string; email?: string; iss?: string; aud?: string; iat?: number; exp?: number };
+
+function signToken(userId: string, email?: string) {
+  return jwt.sign(
+    { sub: userId, email, iss: env.JWT_ISS, aud: env.JWT_AUD } as JwtPayload,
+    JWT_SECRETS[0],
+    { expiresIn: env.JWT_EXPIRES }
+  );
+}
+
+// Verify against all known secrets (rotation-friendly)
+function verifyTokenMulti(token: string): JwtPayload {
+  let lastErr: any;
+  for (const key of JWT_SECRETS) {
+    try {
+      const decoded = jwt.verify(token, key, { issuer: env.JWT_ISS, audience: env.JWT_AUD }) as JwtPayload;
+      return decoded;
+    } catch (e: any) {
+      lastErr = e;
+      continue;
+    }
+  }
+  // Map JWT errors to structured forms
+  if (lastErr?.name === "TokenExpiredError") throw { code: "TOKEN_EXPIRED" };
+  throw { code: "TOKEN_INVALID" };
+}
+
+export function createSession(userId: string, email?: string) {
+  return signToken(userId, email);
+}
+
+export function authMiddleware(req: Request, _res: Response, next: NextFunction) {
+  const hdr = req.headers.authorization || "";
+  const token = hdr.startsWith("Bearer ") ? hdr.slice(7) : null;
+  if (!token) return next(Errors.UNAUTHORIZED("Missing bearer token"));
+
+  try {
+    const decoded = verifyTokenMulti(token);
+    if (!decoded?.sub) throw { code: "TOKEN_INVALID" };
+    req.user = { id: decoded.sub, email: decoded.email };
+    return next();
+  } catch (e: any) {
+    return next(e?.code === "TOKEN_EXPIRED" ? { code: "TOKEN_EXPIRED" } : { code: "TOKEN_INVALID" });
+  }
+}
+
+// Optional role gate (if you store roles on req.user)
+export function requireUser(req: Request, _res: Response, next: NextFunction) {
+  if (!req.user?.id) return next(Errors.UNAUTHORIZED());
+  return next();
+}
+```
+
+* **What changed?**
+
+  * Multi-key verify for rotation.
+  * Clear separation of `TOKEN_EXPIRED` (403) vs `TOKEN_INVALID` (401).
+  * `req.user` is **non-optional** after `authMiddleware`.
+  * `createSession()` always signs with **current** key (`JWT_SECRETS[0]`).
+
+---
+
+## 4) Prod-safe CSP (no inline) + targeted GET rate limiting
+
+**`server/index.ts`** (relevant excerpts)
+
+```ts
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import { env } from "./config";
+import { errorHandler } from "./middleware/errorHandler";
+
+// --- CSP
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'","data:","blob:"],
+      "style-src": env.NODE_ENV === "production" ? ["'self'"] : ["'self'","'unsafe-inline'"],
+      "script-src": ["'self'"],
+      "connect-src": ["'self'", env.CLIENT_ORIGIN || "http://localhost:5173"],
+      "font-src": ["'self'","data:"],
+      "frame-ancestors": ["'none'"]
+    },
+  },
+}));
+
+// --- CORS (tighten in prod)
+import cors from "cors";
+app.use(cors({
+  origin: env.NODE_ENV === "production"
+    ? (env.CLIENT_ORIGIN || false)
+    : true,
+  credentials: true,
+}));
+
+// --- Rate limits
+const writeLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 100,
+  standardHeaders: true,
+});
+
+const readLimiterTight = rateLimit({
+  windowMs: 60_000,
+  max: 60, // tighter on heavy GETs
+  standardHeaders: true,
+});
+
+app.use(["/api"], writeLimiter);
+
+// Apply **targeted** read limiters to expensive/scrapeable GETs
+app.use(["/api/approvals/public", "/uploads"], readLimiterTight);
+
+// ... routes here ...
+
+// Error handler LAST
+app.use(errorHandler);
+```
+
+> If you need inline styles in prod for a specific page, switch to **nonce** or **hash** per Manus’ suggestion; this CSP keeps you safe by default without blocking your current shadcn/Tailwind setup.
+
+---
+
+## 5) Public approval fetch + safer statuses (if you haven’t added yet)
+
+(If you already merged earlier payloads, keep your version. Otherwise:)
+
+**`server/routes/approvals.public.ts`**
+
+```ts
+import { Router } from "express";
+import { db } from "../db";
+import { approvals } from "../shared/schema";
+import { eq } from "drizzle-orm";
+import { Errors, HttpError } from "../errors";
+import { asyncHandler } from "../middleware/errorHandler";
+
+export const approvalsPublic = Router();
+
+approvalsPublic.get("/:token", asyncHandler(async (req, res) => {
+  const token = req.params.token;
+  const rows = await db.select().from(approvals).where(eq(approvals.shareToken, token)).limit(1);
+  const a = rows[0];
+  if (!a) throw Errors.NOT_FOUND("Invalid or expired link");
+  res.json({ id: a.id, title: a.title, description: a.description, status: a.status, draftUrl: a.draftUrl });
+}));
+
+// If you allow public status changes:
+approvalsPublic.post("/:token/status", asyncHandler(async (req, res) => {
+  const token = req.params.token;
+  const { status } = req.body as { status: "approved" | "feedback" };
+  if (!["approved","feedback"].includes(status)) throw Errors.BAD_REQUEST("Invalid status");
+  const rows = await db.select().from(approvals).where(eq(approvals.shareToken, token)).limit(1);
+  if (!rows[0]) throw Errors.NOT_FOUND("Invalid or expired link");
+  await db.update(approvals).set({ status }).where(eq(approvals.shareToken, token));
+  res.json({ ok: true });
+}));
+```
+
+Wire it:
+
+```ts
+import { approvalsPublic } from "./routes/approvals.public";
+app.use("/api/approvals/public", approvalsPublic);
+```
+
+---
+
+## 6) Migration for pgcrypto (if not done)
+
+**`migrations/000_bootstrap.sql`**
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+```
+
+Run:
+
+```
+npm run db:push
+```
+
+---
+
+## 7) Tests you can run today
+
+* **JWT rotation sanity**
+
+  1. Issue token with current key.
+  2. Move that key to second position & set a new first key.
+  3. Existing token still verifies; new logins sign with new key.
+
+* **Granular auth**
+
+  * Send expired token → expect `403 TOKEN_EXPIRED`.
+  * Send tampered token → expect `401 TOKEN_INVALID`.
+
+* **CSP**
+
+  * In prod build, inline styles blocked (verify dev still works).
+  * Images load (self/data/blob).
+
+* **Rate limits**
+
+  * Hammer `/api/approvals/public/:token` → 429 after ~60/min.
+  * Normal browsing unaffected.
+
+* **Error model**
+
+  * Trigger Zod failure → JSON `{ error: { code:"VALIDATION_ERROR", ... }}`
+  * Unknown exception → `{ error: { code:"SERVER_ERROR" }}`
+
+---
+
+## 8) What this unlocks next
+
+* **Council Dashboard** can now chart security signals (401/403 rates), approval responses, and rate-limit hits.
+* **Monetization** becomes safer because auth & errors are deterministic; expired tokens won’t look like “app bugs.”
+
+---
+
+If you want, I can bundle this as a single **git patch** targeting your current tree (with file paths you’re using) or generate **super-minimal PR diffs** per file to keep review clean.
