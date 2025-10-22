@@ -530,6 +530,35 @@ export const agentLogs = pgTable("agent_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ========== SMART AGENTS & FOLLOW-UP (Phase 12.3) ==========
+
+// Agent Rules for proactive reminders and escalations
+export const agentRules = pgTable("agent_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  triggerType: text("trigger_type").notNull(), // 'proof_unviewed', 'task_overdue', 'approval_pending', 'project_idle'
+  delayDays: integer("delay_days").notNull().default(1),
+  actionType: text("action_type").notNull().default("nudge"), // 'nudge', 'escalate'
+  channel: text("channel").notNull().default("in_app"), // 'email', 'in_app'
+  tone: text("tone").default("friendly"), // 'formal', 'friendly', 'energetic', 'playful'
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Agent Notification Logs for tracking sent nudges and preventing duplicates
+export const agentNotificationLogs = pgTable("agent_notification_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  ruleId: varchar("rule_id").references(() => agentRules.id, { onDelete: "cascade" }),
+  relatedId: varchar("related_id"), // FK to related item (task/proof/approval ID)
+  relatedType: text("related_type"), // 'task', 'proof', 'approval', 'project'
+  triggeredAt: timestamp("triggered_at").notNull().defaultNow(),
+  deliveryChannel: text("delivery_channel").notNull(), // 'email', 'in_app'
+  status: text("status").notNull().default("sent"), // 'sent', 'viewed', 'dismissed', 'clicked'
+  message: text("message"), // The actual message sent
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ========== ARCANA EVENT OS FEATURES ==========
 
 // Events linked to clients
@@ -882,6 +911,16 @@ export type InsertMirrorWallet = z.infer<typeof insertMirrorWalletSchema>;
 
 export type MirrorTx = typeof mirrorTx.$inferSelect;
 export type InsertMirrorTx = z.infer<typeof insertMirrorTxSchema>;
+
+// Agent Rules schemas
+export const insertAgentRuleSchema = createInsertSchema(agentRules).omit({ id: true, createdAt: true });
+export type AgentRule = typeof agentRules.$inferSelect;
+export type InsertAgentRule = z.infer<typeof insertAgentRuleSchema>;
+
+// Agent Notification Logs schemas
+export const insertAgentNotificationLogSchema = createInsertSchema(agentNotificationLogs).omit({ id: true, createdAt: true });
+export type AgentNotificationLog = typeof agentNotificationLogs.$inferSelect;
+export type InsertAgentNotificationLog = z.infer<typeof insertAgentNotificationLogSchema>;
 
 // Auth schemas
 export const loginSchema = z.object({

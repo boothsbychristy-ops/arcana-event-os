@@ -51,6 +51,8 @@ import type {
   DynamicFieldValue, InsertDynamicFieldValue,
   BoardAutomationRule, InsertBoardAutomationRule,
   BoardAutomationLog, InsertBoardAutomationLog,
+  AgentRule, InsertAgentRule,
+  AgentNotificationLog, InsertAgentNotificationLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -244,6 +246,24 @@ export interface IStorage {
   
   // Automation Logs
   getAutomationLogs(automationId?: string, limit?: number): Promise<AutomationLog[]>;
+  
+  // Agent Rules (Phase 12.3 - Smart Agents & Follow-Up)
+  getAllAgentRules(createdBy?: string): Promise<AgentRule[]>;
+  getAgentRule(id: string): Promise<AgentRule | undefined>;
+  getActiveAgentRules(): Promise<AgentRule[]>;
+  createAgentRule(rule: InsertAgentRule): Promise<AgentRule>;
+  updateAgentRule(id: string, rule: Partial<InsertAgentRule>): Promise<AgentRule | undefined>;
+  toggleAgentRule(id: string): Promise<AgentRule | undefined>;
+  deleteAgentRule(id: string): Promise<boolean>;
+  
+  // Agent Notification Logs (Phase 12.3 - Smart Agents & Follow-Up)
+  getAgentNotificationLogs(userId?: string, limit?: number): Promise<AgentNotificationLog[]>;
+  getAgentNotificationLog(id: string): Promise<AgentNotificationLog | undefined>;
+  createAgentNotificationLog(log: InsertAgentNotificationLog): Promise<AgentNotificationLog>;
+  updateAgentNotificationLog(id: string, log: Partial<InsertAgentNotificationLog>): Promise<AgentNotificationLog | undefined>;
+  checkNotificationExists(ruleId: string, relatedId: string): Promise<boolean>;
+  getUserUnreadNotifications(userId: string): Promise<AgentNotificationLog[]>;
+  dismissNotification(id: string): Promise<AgentNotificationLog | undefined>;
   
   // Approvals
   getAllApprovals(ownerId: string): Promise<Approval[]>;
@@ -1346,6 +1366,121 @@ export class DatabaseStorage implements IStorage {
       .from(schema.automationLogs)
       .orderBy(desc(schema.automationLogs.runAt))
       .limit(limit);
+  }
+
+  // Agent Rules (Phase 12.3 - Smart Agents & Follow-Up)
+  async getAllAgentRules(createdBy?: string): Promise<AgentRule[]> {
+    if (createdBy) {
+      return db.select().from(schema.agentRules).where(eq(schema.agentRules.createdBy, createdBy));
+    }
+    return db.select().from(schema.agentRules);
+  }
+
+  async getAgentRule(id: string): Promise<AgentRule | undefined> {
+    const result = await db.select().from(schema.agentRules).where(eq(schema.agentRules.id, id));
+    return result[0];
+  }
+
+  async getActiveAgentRules(): Promise<AgentRule[]> {
+    return db.select().from(schema.agentRules).where(eq(schema.agentRules.active, true));
+  }
+
+  async createAgentRule(rule: InsertAgentRule): Promise<AgentRule> {
+    const result = await db.insert(schema.agentRules).values(rule).returning();
+    return result[0];
+  }
+
+  async updateAgentRule(id: string, rule: Partial<InsertAgentRule>): Promise<AgentRule | undefined> {
+    const result = await db.update(schema.agentRules)
+      .set(rule)
+      .where(eq(schema.agentRules.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async toggleAgentRule(id: string): Promise<AgentRule | undefined> {
+    const current = await this.getAgentRule(id);
+    if (!current) return undefined;
+    
+    const result = await db.update(schema.agentRules)
+      .set({ active: !current.active })
+      .where(eq(schema.agentRules.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteAgentRule(id: string): Promise<boolean> {
+    const result = await db.delete(schema.agentRules)
+      .where(eq(schema.agentRules.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Agent Notification Logs (Phase 12.3 - Smart Agents & Follow-Up)
+  async getAgentNotificationLogs(userId?: string, limit: number = 50): Promise<AgentNotificationLog[]> {
+    if (userId) {
+      return db.select()
+        .from(schema.agentNotificationLogs)
+        .where(eq(schema.agentNotificationLogs.userId, userId))
+        .orderBy(desc(schema.agentNotificationLogs.triggeredAt))
+        .limit(limit);
+    }
+    return db.select()
+      .from(schema.agentNotificationLogs)
+      .orderBy(desc(schema.agentNotificationLogs.triggeredAt))
+      .limit(limit);
+  }
+
+  async getAgentNotificationLog(id: string): Promise<AgentNotificationLog | undefined> {
+    const result = await db.select().from(schema.agentNotificationLogs).where(eq(schema.agentNotificationLogs.id, id));
+    return result[0];
+  }
+
+  async createAgentNotificationLog(log: InsertAgentNotificationLog): Promise<AgentNotificationLog> {
+    const result = await db.insert(schema.agentNotificationLogs).values(log).returning();
+    return result[0];
+  }
+
+  async updateAgentNotificationLog(id: string, log: Partial<InsertAgentNotificationLog>): Promise<AgentNotificationLog | undefined> {
+    const result = await db.update(schema.agentNotificationLogs)
+      .set(log)
+      .where(eq(schema.agentNotificationLogs.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async checkNotificationExists(ruleId: string, relatedId: string): Promise<boolean> {
+    const result = await db.select()
+      .from(schema.agentNotificationLogs)
+      .where(
+        and(
+          eq(schema.agentNotificationLogs.ruleId, ruleId),
+          eq(schema.agentNotificationLogs.relatedId, relatedId)
+        )
+      )
+      .limit(1);
+    return result.length > 0;
+  }
+
+  async getUserUnreadNotifications(userId: string): Promise<AgentNotificationLog[]> {
+    return db.select()
+      .from(schema.agentNotificationLogs)
+      .where(
+        and(
+          eq(schema.agentNotificationLogs.userId, userId),
+          eq(schema.agentNotificationLogs.deliveryChannel, 'in_app'),
+          eq(schema.agentNotificationLogs.status, 'sent')
+        )
+      )
+      .orderBy(desc(schema.agentNotificationLogs.triggeredAt));
+  }
+
+  async dismissNotification(id: string): Promise<AgentNotificationLog | undefined> {
+    const result = await db.update(schema.agentNotificationLogs)
+      .set({ status: 'dismissed' })
+      .where(eq(schema.agentNotificationLogs.id, id))
+      .returning();
+    return result[0];
   }
 
   // Approvals
