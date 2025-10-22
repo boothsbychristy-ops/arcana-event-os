@@ -530,7 +530,7 @@ export const agentLogs = pgTable("agent_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// ========== ENHANCED RAINBOW CRM FEATURES ==========
+// ========== ARCANA EVENT OS FEATURES ==========
 
 // Events linked to clients
 export const events = pgTable("events", {
@@ -662,7 +662,7 @@ export const mirrorTx = pgTable("mirror_tx", {
 export const tenantSettings = pgTable("tenant_settings", {
   tenantId: varchar("tenant_id").primaryKey(),
   watermarkEnabled: boolean("watermark_enabled").default(true),
-  watermarkText: text("watermark_text").default("Proof — Rainbow CRM"),
+  watermarkText: text("watermark_text").default("Proof — Arcana"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

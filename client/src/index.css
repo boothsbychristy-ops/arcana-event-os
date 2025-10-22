@@ -2,79 +2,79 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE - Neon Glass Theme */
+/* LIGHT MODE - Arcana Twilight Theme */
 :root {
-  --button-outline: rgba(147, 51, 234, .15);
-  --badge-outline: rgba(147, 51, 234, .08);
+  --button-outline: rgba(109, 40, 217, .15);
+  --badge-outline: rgba(109, 40, 217, .08);
 
   /* Automatic computation of border around primary / danger buttons */
   --opaque-button-border-intensity: -8; /* In terms of percentages */
 
   /* Backgrounds applied on top of other backgrounds when hovered/active */
-  --elevate-1: rgba(147, 51, 234, .04);
-  --elevate-2: rgba(147, 51, 234, .10);
+  --elevate-1: rgba(109, 40, 217, .04);
+  --elevate-2: rgba(109, 40, 217, .10);
 
-  --background: 240 10% 96%;
+  --background: 250 20% 97%;
 
-  --foreground: 240 10% 10%;
+  --foreground: 250 30% 15%;
 
-  --border: 240 5% 88%;
+  --border: 250 15% 88%;
 
   --card: 0 0% 100%;
 
-  --card-foreground: 240 10% 10%;
+  --card-foreground: 250 30% 15%;
 
-  --card-border: 240 5% 92%;
+  --card-border: 250 10% 92%;
 
-  --sidebar: 262 80% 51%;
+  --sidebar: 270 60% 25%;
 
-  --sidebar-foreground: 0 0% 100%;
+  --sidebar-foreground: 45 100% 85%;
 
-  --sidebar-border: 262 80% 45%;
+  --sidebar-border: 270 60% 20%;
 
-  --sidebar-primary: 262 80% 58%;
+  --sidebar-primary: 270 70% 55%;
 
-  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-primary-foreground: 45 100% 95%;
 
-  --sidebar-accent: 262 80% 45%;
+  --sidebar-accent: 270 50% 30%;
 
-  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-accent-foreground: 45 100% 90%;
 
-  --sidebar-ring: 262 80% 51%;
+  --sidebar-ring: 270 70% 55%;
 
   --popover: 0 0% 100%;
 
-  --popover-foreground: 240 10% 10%;
+  --popover-foreground: 250 30% 15%;
 
-  --popover-border: 240 5% 88%;
+  --popover-border: 250 15% 88%;
 
-  --primary: 262 80% 51%;
+  --primary: 270 70% 55%;
 
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 240 5% 92%;
+  --secondary: 250 10% 92%;
 
-  --secondary-foreground: 240 10% 10%;
+  --secondary-foreground: 250 30% 15%;
 
-  --muted: 240 5% 92%;
+  --muted: 250 10% 92%;
 
-  --muted-foreground: 240 4% 46%;
+  --muted-foreground: 250 15% 46%;
 
-  --accent: 262 60% 95%;
+  --accent: 45 95% 92%;
 
-  --accent-foreground: 262 80% 51%;
+  --accent-foreground: 270 70% 40%;
 
   --destructive: 0 84% 60%;
 
   --destructive-foreground: 0 0% 100%;
 
-  --input: 240 5% 84%;
-  --ring: 262 80% 51%;
-  --chart-1: 262 80% 51%;
-  --chart-2: 217 91% 60%;
-  --chart-3: 174 80% 45%;
-  --chart-4: 280 85% 65%;
-  --chart-5: 340 75% 60%;
+  --input: 250 10% 84%;
+  --ring: 270 70% 55%;
+  --chart-1: 270 70% 55%;
+  --chart-2: 45 90% 60%;
+  --chart-3: 250 60% 50%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 200 70% 55%;
 
   --font-sans: Open Sans, sans-serif;
   --font-serif: Georgia, serif;
@@ -122,52 +122,52 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
-/* DARK MODE - Neon Glass Theme */
+/* DARK MODE - Arcana Twilight Theme */
 .dark {
-  --button-outline: rgba(168, 85, 247, .20);
-  --badge-outline: rgba(168, 85, 247, .10);
+  --button-outline: rgba(139, 92, 246, .20);
+  --badge-outline: rgba(139, 92, 246, .10);
 
   --opaque-button-border-intensity: 9;  /* In terms of percentages */
 
   /* Backgrounds applied on top of other backgrounds when hovered/active */
-  --elevate-1: rgba(168, 85, 247, .05);
-  --elevate-2: rgba(168, 85, 247, .12);
+  --elevate-1: rgba(139, 92, 246, .05);
+  --elevate-2: rgba(139, 92, 246, .12);
 
-  --background: 222 47% 5%;
+  --background: 250 40% 8%;
 
-  --foreground: 210 40% 98%;
+  --foreground: 45 90% 92%;
 
-  --border: 217 33% 17%;
+  --border: 250 30% 18%;
 
-  --card: 222 47% 8%;
+  --card: 250 40% 11%;
 
-  --card-foreground: 210 40% 98%;
+  --card-foreground: 45 90% 92%;
 
-  --card-border: 217 33% 14%;
+  --card-border: 250 30% 15%;
 
-  --sidebar: 262 80% 15%;
+  --sidebar: 270 50% 12%;
 
-  --sidebar-foreground: 210 40% 98%;
+  --sidebar-foreground: 45 90% 88%;
 
-  --sidebar-border: 262 80% 20%;
+  --sidebar-border: 270 50% 18%;
 
-  --sidebar-primary: 262 80% 51%;
+  --sidebar-primary: 270 70% 55%;
 
   --sidebar-primary-foreground: 0 0% 100%;
 
-  --sidebar-accent: 262 80% 20%;
+  --sidebar-accent: 270 40% 18%;
 
-  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-accent-foreground: 45 90% 88%;
 
-  --sidebar-ring: 262 80% 51%;
+  --sidebar-ring: 270 70% 55%;
 
-  --popover: 222 47% 11%;
+  --popover: 250 40% 13%;
 
-  --popover-foreground: 210 40% 98%;
+  --popover-foreground: 45 90% 92%;
 
-  --popover-border: 217 33% 17%;
+  --popover-border: 250 30% 18%;
 
-  --primary: 262 80% 51%;
+  --primary: 270 70% 55%;
 
   --primary-foreground: 0 0% 100%;
 

@@ -93,7 +93,7 @@ export function AppSidebar() {
     const settingsGroup = allMenuItems.find(group => group.group === "Settings");
     if (settingsGroup && !settingsGroup.items.some(item => item.url === "/dashboard/council")) {
       settingsGroup.items.push({
-        title: "Council Dashboard", 
+        title: "Arcana Council", 
         url: "/dashboard/council", 
         icon: Shield, 
         testId: "link-council"

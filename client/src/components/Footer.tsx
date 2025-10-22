@@ -23,12 +23,12 @@ export function Footer() {
 
           {/* Center - Copyright */}
           <div className="text-xs text-muted-foreground">
-            © {new Date().getFullYear()} Rainbow CRM. All rights reserved.
+            © {new Date().getFullYear()} Arcana. All rights reserved.
           </div>
 
           {/* Right side - Report a bug */}
           <a
-            href="mailto:beta@rainbowcrm.com?subject=Bug Report - Rainbow CRM"
+            href="mailto:support@arcana.events?subject=Bug Report - Arcana"
             className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
             data-testid="link-report-bug"
           >

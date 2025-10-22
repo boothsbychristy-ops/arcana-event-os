@@ -55,11 +55,11 @@ export default function Login() {
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-4">
-            <div className="h-16 w-full rounded-lg bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-500 opacity-10" />
+            <div className="h-16 w-full rounded-lg bg-gradient-to-r from-violet-600 via-purple-600 to-amber-500 opacity-10" />
           </div>
-          <CardTitle className="text-2xl font-bold text-center">Welcome to Event OS</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">Welcome to Arcana</CardTitle>
           <CardDescription className="text-center">
-            Sign in to your account to continue
+            This is where work gets approved, aligned, and brought to life.
           </CardDescription>
         </CardHeader>
         <CardContent>

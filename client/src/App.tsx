@@ -117,10 +117,10 @@ function AppLayout() {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1">
-          <header className="sticky top-0 z-50 flex items-center justify-between p-4 border-b bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-500 bg-opacity-[0.06]">
+          <header className="sticky top-0 z-50 flex items-center justify-between p-4 border-b bg-gradient-to-r from-violet-600 via-purple-600 to-amber-500 bg-opacity-[0.06]">
             <div className="flex items-center gap-4">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="text-white" />
-              <h1 className="text-xl font-bold text-white">Project Rainbow CRM</h1>
+              <h1 className="text-xl font-bold text-white">Arcana</h1>
             </div>
             {user && (
               <div className="flex items-center gap-2">

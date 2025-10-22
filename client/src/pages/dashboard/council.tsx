@@ -122,7 +122,7 @@ export default function Council() {
   if (isLoading) {
     return (
       <div className="p-6 text-gray-400">
-        <div className="animate-pulse">Loading Council Dashboard...</div>
+        <div className="animate-pulse">Loading Arcana Council...</div>
       </div>
     );
   }
@@ -182,7 +182,7 @@ export default function Council() {
 
   return (
     <div className="min-h-screen p-6 space-y-6">
-      <h1 className="text-3xl font-bold text-white mb-6">Council Dashboard</h1>
+      <h1 className="text-3xl font-bold text-white mb-6">Arcana Council</h1>
       
       {/* Totals */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
