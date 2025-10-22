@@ -1,8 +1,9 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Table, Settings, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
+import { Plus, Table, Settings, GripVertical, MoreHorizontal, Trash2, Zap } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { AutomationsList } from "@/components/AutomationsList";
 
 type FieldType = "text" | "number" | "date" | "status" | "dropdown" | "checkbox";
 
@@ -541,55 +543,74 @@ export default function DynamicBoards() {
                 </div>
               </CardHeader>
               <CardContent>
-                {fieldsLoading || itemsLoading ? (
-                  <Skeleton className="h-64" />
-                ) : fields.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <p>No columns yet. Add your first column to get started.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <DndContext
-                      sensors={sensors}
-                      collisionDetection={closestCenter}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <table className="w-full border-collapse border">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="p-3 text-left bg-muted/50 border-r w-12">#</th>
-                            <SortableContext items={fields.map(f => f.id)} strategy={horizontalListSortingStrategy}>
-                              {fields.map((field) => (
-                                <SortableColumnHeader
-                                  key={field.id}
-                                  field={field}
-                                  onDelete={() => deleteFieldMutation.mutate(field.id)}
-                                />
+                <Tabs defaultValue="table" className="w-full">
+                  <TabsList className="mb-4">
+                    <TabsTrigger value="table" data-testid="tab-table">
+                      <Table className="h-4 w-4 mr-2" />
+                      Table
+                    </TabsTrigger>
+                    <TabsTrigger value="automations" data-testid="tab-automations">
+                      <Zap className="h-4 w-4 mr-2" />
+                      Automations
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="table">
+                    {fieldsLoading || itemsLoading ? (
+                      <Skeleton className="h-64" />
+                    ) : fields.length === 0 ? (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <p>No columns yet. Add your first column to get started.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <DndContext
+                          sensors={sensors}
+                          collisionDetection={closestCenter}
+                          onDragEnd={handleDragEnd}
+                        >
+                          <table className="w-full border-collapse border">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="p-3 text-left bg-muted/50 border-r w-12">#</th>
+                                <SortableContext items={fields.map(f => f.id)} strategy={horizontalListSortingStrategy}>
+                                  {fields.map((field) => (
+                                    <SortableColumnHeader
+                                      key={field.id}
+                                      field={field}
+                                      onDelete={() => deleteFieldMutation.mutate(field.id)}
+                                    />
+                                  ))}
+                                </SortableContext>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items.map((item, idx) => (
+                                <tr key={item.id} className="border-b hover-elevate" data-testid={`row-item-${item.id}`}>
+                                  <td className="p-3 border-r text-muted-foreground text-sm">{idx + 1}</td>
+                                  {fields.map((field) => (
+                                    <td key={field.id} className="border-r last:border-r-0">
+                                      <EditableCell
+                                        item={item}
+                                        field={field}
+                                        value={getItemFieldValue(item.id, field.id)}
+                                        onSave={(value) => updateFieldValueMutation.mutate({ itemId: item.id, fieldId: field.id, value })}
+                                      />
+                                    </td>
+                                  ))}
+                                </tr>
                               ))}
-                            </SortableContext>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {items.map((item, idx) => (
-                            <tr key={item.id} className="border-b hover-elevate" data-testid={`row-item-${item.id}`}>
-                              <td className="p-3 border-r text-muted-foreground text-sm">{idx + 1}</td>
-                              {fields.map((field) => (
-                                <td key={field.id} className="border-r last:border-r-0">
-                                  <EditableCell
-                                    item={item}
-                                    field={field}
-                                    value={getItemFieldValue(item.id, field.id)}
-                                    onSave={(value) => updateFieldValueMutation.mutate({ itemId: item.id, fieldId: field.id, value })}
-                                  />
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </DndContext>
-                  </div>
-                )}
+                            </tbody>
+                          </table>
+                        </DndContext>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="automations">
+                    {selectedBoardId && <AutomationsList boardId={selectedBoardId} />}
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           )}
