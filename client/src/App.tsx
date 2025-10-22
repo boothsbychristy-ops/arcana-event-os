@@ -41,6 +41,7 @@ import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AgentNotifications } from "@/components/AgentNotifications";
 import arcanaLogo from "@assets/arcana_logo_128x128_1761101828930.png";
 
 function ProtectedRoute({ component: Component, ...rest }: { component: () => JSX.Element; path?: string }) {
@@ -166,6 +167,7 @@ function App() {
         <AuthProvider>
           <TooltipProvider>
             <AppLayout />
+            <AgentNotifications />
             <Toaster />
           </TooltipProvider>
         </AuthProvider>
