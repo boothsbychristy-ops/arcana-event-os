@@ -1,0 +1,148 @@
+Heck yes. I’ll package 12.4 so you (solo) can ship cleanly: seed script, PR checklist, API contract, and guardrails. Then I’ll tee up 12.5.
+
+# Arcana 12.4 — Ship Kit
+
+## 1) Seed script (creates sensible default views)
+
+**Goal:** Auto-add Kanban/Calendar/Timeline views where fields exist, and at least one Table view per board.
+
+```ts
+// scripts/seedViews.ts
+import { db } from "../server/db";
+type Field = { field_id:number; board_id:number; name:string; type:string; config:any };
+
+async function main() {
+  const boards = await db.boards.findMany();
+  for (const b of boards) {
+    const fields: Field[] = await db.fields.findMany({ where: { board_id: b.board_id }});
+
+    const hasDefault = await db.board_views.findFirst({ where: { board_id: b.board_id, is_default: true }});
+    if (!hasDefault) {
+      await db.board_views.create({
+        data: { board_id: b.board_id, type: "table", name: "Table", config: {}, is_default: true }
+      });
+    }
+
+    // Kanban if there's a status/select field
+    const status = fields.find(f => ["status","select","dropdown"].includes(f.type));
+    if (status) {
+      const columnOrder = (status.config?.options ?? []).map((o:any)=>o.label) || ["To Do","Doing","Done"];
+      await upsertView(b.board_id, "Kanban", "kanban", {
+        groupByFieldId: status.field_id,
+        columnOrder,
+        filters: [], sort: [], cardFields: pickTopFields(fields)
+      });
+    }
+
+    // Calendar if there's a date field
+    const date = fields.find(f => f.type === "date");
+    if (date) {
+      await upsertView(b.board_id, "Calendar", "calendar", {
+        dateFieldId: date.field_id, mode:"month", filters: [], colorByFieldId: status?.field_id ?? null
+      });
+    }
+
+    // Timeline if there are start/end (two date fields)
+    const dates = fields.filter(f => f.type === "date");
+    if (dates.length >= 1) {
+      const start = dates[0], end = dates[1] ?? null;
+      await upsertView(b.board_id, "Timeline", "timeline", {
+        startFieldId: start.field_id,
+        endFieldId: end?.field_id ?? null,
+        groupByFieldId: status?.field_id ?? null,
+        filters: [], rowLabelFieldId: fields.find(f=>f.name?.toLowerCase()==="name")?.field_id ?? null
+      });
+    }
+  }
+  console.log("Seeded board views.");
+}
+
+function pickTopFields(fields: Field[]) {
+  // Prefer name, status, date, assignee-like
+  const order = ["name","status","date","assignee","owner","client","priority"];
+  const sorted = [...fields].sort((a,b)=> orderIndex(a.name)-orderIndex(b.name));
+  return sorted.slice(0,3).map(f=>f.field_id);
+  function orderIndex(n?:string){ const i = order.findIndex(k=>n?.toLowerCase().includes(k)); return i===-1?99:i; }
+}
+
+async function upsertView(board_id:number, name:string, type:string, config:any){
+  const exists = await db.board_views.findFirst({ where: { board_id, name }});
+  if (exists) return;
+  await db.board_views.create({ data: { board_id, name, type, config, is_default:false }});
+}
+
+main().catch(e=>{ console.error(e); process.exit(1); });
+```
+
+**Run:** `npm run seed:views` (add a script in `package.json`).
+
+---
+
+## 2) Minimal API contract (drop-in)
+
+* `GET /api/boards/:boardId/views` → list `{id,type,name,config,is_default}`
+* `POST /api/boards/:boardId/views` → create `{type,name,config,is_default?}`
+* `PUT /api/views/:id` → update `name|config|is_default`
+* `DELETE /api/views/:id`
+* Reuse your existing field-update endpoint for DnD (Kanban), reschedule (Calendar), and resize (Timeline).
+
+**Guards:** Validate `config` per type; enforce one `is_default` per board.
+
+---
+
+## 3) Frontend tasks (crispy and contained)
+
+* Add `<ViewSwitcher/>` to board header.
+* Implement `<KanbanView/>`, `<CalendarView/>`, `<TimelineView/>` using your existing `useItems(boardId, filters)` and `updateField(itemId, fieldId, value)`.
+* WebSocket: subscribe to `board:{boardId}`; reconcile item updates across views.
+* A11y: keyboard DnD fallbacks; focus rings; ARIA labels.
+
+---
+
+## 4) PR Checklist (copy-paste into PR body)
+
+* [ ] DB: `board_views` migration applied
+* [ ] Seed: Table view default per board; Kanban/Calendar/Timeline when fields exist
+* [ ] API: views CRUD + default enforcement
+* [ ] FE: View switcher + three views behind `FEATURE_VIEWS=true`
+* [ ] Kanban DnD updates status field live (optimistic, rollback on error)
+* [ ] Calendar drag updates date; timezone tested
+* [ ] Timeline resize sets end date; missing end => +1 day default
+* [ ] WS live updates across open clients
+* [ ] A11y: keyboard nav + visible focus
+* [ ] Perf: virtualization tested on 2k+ items
+* [ ] Tests: view create/update/delete; Kanban move; Calendar reschedule; Timeline resize
+* [ ] Docs: Help tooltip “Saved Views”; quickstart in `replit.md`
+
+**Rollback plan:** Keep a `FEATURE_VIEWS` flag. If anything misbehaves, hide the switcher; existing Table view remains.
+
+---
+
+## 5) Micro-copy (clear, not witchy)
+
+* Switcher tooltip: “Save different ways to look at this board — Kanban, Calendar, Timeline.”
+* Empty Kanban: “Add a Status field to enable Kanban.”
+* Empty Calendar: “Choose a Date field in view settings to plot items.”
+* Empty Timeline: “Add Start (and optional End) dates to see bars.”
+
+---
+
+## 6) After merge: Light QA script
+
+* Create a board with: Name, Status (To Do/Doing/Done), Date (due), Date End.
+* Seed views; confirm three views appear.
+* Move a Kanban card → status updates in Table.
+* Drag event to new date → Date field changes in Table.
+* Resize Timeline bar → End date updates.
+
+---
+
+# Next Payload Teed Up — 12.5 Public API + Webhooks + Zapier
+
+* **Auth:** OAuth + API keys
+* **REST:** `/v1/boards, /v1/items, /v1/fields, /v1/views`
+* **Webhooks:** register + HMAC-signed posts for `item.created`, `item.updated`, `field.changed`, `proof.shared`
+* **Zapier:** Trigger (New/Updated Item), Action (Create Item / Update Field)
+* **Dev Portal:** token page, webhook tester, OpenAPI docs
+
+Say “cast it” and I’ll drop the 12.5 engineering payload in the same ready-to-ship format.

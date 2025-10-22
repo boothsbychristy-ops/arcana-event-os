@@ -423,6 +423,23 @@ export const boardAutomationLogs = pgTable("board_automation_logs", {
   details: jsonb("details").default({}), // context like item_id, field changes, etc.
 });
 
+// ============================================================================
+// PHASE 12.4: Multiple Views (Kanban, Calendar, Timeline)
+// ============================================================================
+
+// Board Views - saved lenses for viewing board data in different formats
+export const boardViews = pgTable("board_views", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").references(() => dynamicBoards.id, { onDelete: "cascade" }).notNull(),
+  type: text("type").notNull(), // 'table' | 'kanban' | 'calendar' | 'timeline'
+  name: text("name").notNull(), // e.g. "Design Kanban", "Events Calendar"
+  config: jsonb("config").notNull().default({}), // view-specific configuration
+  isDefault: boolean("is_default").notNull().default(false),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Message threads
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -733,6 +750,7 @@ export const insertDynamicItemSchema = createInsertSchema(dynamicItems).omit({ i
 export const insertDynamicFieldValueSchema = createInsertSchema(dynamicFieldValues).omit({ id: true, updatedAt: true });
 export const insertBoardAutomationRuleSchema = createInsertSchema(boardAutomationRules).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBoardAutomationLogSchema = createInsertSchema(boardAutomationLogs).omit({ id: true, triggeredAt: true });
+export const insertBoardViewSchema = createInsertSchema(boardViews).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTaskCommentSchema = createInsertSchema(taskComments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTaskAttachmentSchema = createInsertSchema(taskAttachments).omit({ id: true, createdAt: true });
 export const insertSubtaskSchema = createInsertSchema(subtasks).omit({ id: true, createdAt: true, completedAt: true });
@@ -836,6 +854,9 @@ export type InsertBoardAutomationRule = z.infer<typeof insertBoardAutomationRule
 
 export type BoardAutomationLog = typeof boardAutomationLogs.$inferSelect;
 export type InsertBoardAutomationLog = z.infer<typeof insertBoardAutomationLogSchema>;
+
+export type BoardView = typeof boardViews.$inferSelect;
+export type InsertBoardView = z.infer<typeof insertBoardViewSchema>;
 
 export type TaskStatus = typeof taskStatuses.$inferSelect;
 export type InsertTaskStatus = z.infer<typeof insertTaskStatusSchema>;
