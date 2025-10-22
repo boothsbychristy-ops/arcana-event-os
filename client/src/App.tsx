@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import arcanaLogo from "@assets/arcana_logo_128x128_1761101828930.png";
 
 function ProtectedRoute({ component: Component, ...rest }: { component: () => JSX.Element; path?: string }) {
   const { user, isLoading } = useAuth();
@@ -120,6 +121,12 @@ function AppLayout() {
           <header className="sticky top-0 z-50 flex items-center justify-between p-4 border-b bg-gradient-to-r from-violet-600 via-purple-600 to-amber-500 bg-opacity-[0.06]">
             <div className="flex items-center gap-4">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="text-white" />
+              <img 
+                src={arcanaLogo} 
+                alt="Arcana Logo" 
+                className="w-8 h-8 arcana-logo-glow" 
+                data-testid="logo-header"
+              />
               <h1 className="text-xl font-bold text-white">Arcana</h1>
             </div>
             {user && (
