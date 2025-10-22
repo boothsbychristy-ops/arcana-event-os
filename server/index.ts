@@ -174,6 +174,10 @@ app.use((req, res, next) => {
   // Initialize board automation scheduler
   const { initializeAutomationScheduler } = await import("./automation-scheduler");
   initializeAutomationScheduler();
+  
+  // Initialize smart agent scheduler (Phase 12.3)
+  const { startAgentScheduler } = await import("./agents/agent-engine");
+  startAgentScheduler();
 })();
 
 // Export app for testing
