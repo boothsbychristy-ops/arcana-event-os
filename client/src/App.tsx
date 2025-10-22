@@ -30,6 +30,7 @@ import Analytics from "@/pages/Analytics";
 import Approvals from "@/pages/approvals";
 import PaymentSettings from "@/pages/settings/payment-settings";
 import BookingEngineSettings from "@/pages/settings/booking-engine";
+import AgentSettings from "@/pages/settings/agent-settings";
 import Pipeline from "@/pages/Pipeline";
 import ProofPortal from "@/pages/ProofPortal";
 import AssetLibrary from "@/pages/AssetLibrary";
@@ -90,6 +91,7 @@ function Router() {
       <Route path="/assets">{() => <ProtectedRoute component={AssetLibrary} />}</Route>
       <Route path="/settings/payments">{() => <ProtectedRoute component={PaymentSettings} />}</Route>
       <Route path="/settings/booking-engine">{() => <ProtectedRoute component={BookingEngineSettings} />}</Route>
+      <Route path="/settings/agents">{() => <ProtectedRoute component={AgentSettings} />}</Route>
       <Route path="/dashboard/council">{() => <ProtectedRoute component={Council} />}</Route>
       <Route path="/dynamic-boards">{() => <ProtectedRoute component={DynamicBoards} />}</Route>
       <Route component={NotFound} />

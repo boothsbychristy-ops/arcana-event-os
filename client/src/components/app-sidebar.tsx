@@ -23,6 +23,7 @@ import {
   FolderOpen,
   Shield,
   Table,
+  Bell,
 } from "lucide-react";
 import {
   Sidebar,
@@ -74,6 +75,7 @@ const menuItems = [
     items: [
       { title: "Payment Settings", url: "/settings/payments", icon: CreditCard, testId: "link-payment-settings" },
       { title: "Booking Engine", url: "/settings/booking-engine", icon: Globe, testId: "link-booking-engine" },
+      { title: "Smart Agents", url: "/settings/agents", icon: Bell, testId: "link-agent-settings" },
     ],
   },
 ];
