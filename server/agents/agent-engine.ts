@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { storage } from "../storage";
 import type { AgentRule, Task, Booking, Invoice, Proposal } from "@shared/schema";
-import { logger } from "../logger";
+import { logger } from "../log";
 
 interface EvaluationContext {
   rule: AgentRule;

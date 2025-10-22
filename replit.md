@@ -117,7 +117,17 @@ Preferred communication style: Simple, everyday language.
 
 ### Recent Changes
 
-**Phase 13.0 - Board Automations Engine (Current)**
+**Phase 12.3 - Smart Agents & Follow-Up System (Current)**
+- Added agentRules and agentNotificationLogs tables for proactive reminders
+- Implemented agent evaluation engine with cron-based checking (every 5 minutes)
+- Created Agent Settings UI page for managing agent rules
+- Built in-app toast notification system with 60-second polling
+- Supports multiple trigger types: task_overdue, booking_upcoming, invoice_unpaid, proposal_pending
+- Configurable notification channels: email, in_app, or both
+- Notification logs track lastSentAt to prevent spam
+- Agent personas support: professional, friendly, urgent tones
+
+**Phase 13.0 - Board Automations Engine**
 - Added boardAutomationRules and boardAutomationLogs tables
 - Implemented trigger-action automation system
 - Created AutomationBuilder wizard component
