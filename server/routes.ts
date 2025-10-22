@@ -50,6 +50,8 @@ import {
   insertDynamicFieldSchema,
   insertDynamicItemSchema,
   insertDynamicFieldValueSchema,
+  insertBoardAutomationRuleSchema,
+  insertBoardAutomationLogSchema,
 } from "@shared/schema";
 import {
   hashPassword,
@@ -2347,6 +2349,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(404).json({ error: "Value not found" });
     }
     res.json({ success: true });
+  });
+
+  // Board Automation Rules API (Phase 13.0)
+  app.get("/api/boards/:boardId/automations", authMiddleware, async (req: AuthRequest, res) => {
+    const rules = await storage.getBoardAutomationRules(req.params.boardId);
+    res.json(rules);
+  });
+
+  app.post("/api/boards/:boardId/automations", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = staff ? staff.ownerId : userId;
+    
+    const data = insertBoardAutomationRuleSchema.parse({
+      ...req.body,
+      boardId: req.params.boardId,
+      ownerId,
+      createdBy: userId,
+    });
+    
+    const rule = await storage.createAutomationRule(data);
+    res.json(rule);
+  });
+
+  app.patch("/api/automations/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const data = insertBoardAutomationRuleSchema.partial().parse(req.body);
+    const rule = await storage.updateAutomationRule(req.params.id, data);
+    
+    if (!rule) {
+      return res.status(404).json({ error: "Automation rule not found" });
+    }
+    
+    res.json(rule);
+  });
+
+  app.delete("/api/automations/:id", authMiddleware, async (req: AuthRequest, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+    const staff = role === "staff" ? await storage.getStaffByUserId(userId) : undefined;
+    const ownerId = staff ? staff.ownerId : userId;
+    
+    const success = await storage.deleteAutomationRule(req.params.id, ownerId);
+    if (!success) {
+      return res.status(404).json({ error: "Automation rule not found" });
+    }
+    
+    res.json({ success: true });
+  });
+
+  // Board Automation Logs API
+  app.get("/api/automations/:ruleId/logs", authMiddleware, async (req: AuthRequest, res) => {
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+    const logs = await storage.getAutomationLogs(req.params.ruleId, limit);
+    res.json(logs);
   });
 
   // Mount Council routes (admin only)
