@@ -1,6 +1,6 @@
 import { storage } from "./storage";
 import type { BoardAutomationRule, DynamicItem, DynamicField } from "@shared/schema";
-import { logger } from "./logger";
+import { logger } from "./log";
 
 // Trigger evaluation functions
 export async function evaluateTrigger(

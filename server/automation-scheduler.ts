@@ -1,6 +1,6 @@
 import { storage } from "./storage";
 import { executeAction } from "./automation-engine";
-import { logger } from "./logger";
+import { logger } from "./log";
 import cron from "node-cron";
 
 /**

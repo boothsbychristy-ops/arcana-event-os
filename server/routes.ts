@@ -61,6 +61,7 @@ import {
   roleMiddleware,
   type AuthRequest,
 } from "./auth";
+import { checkAndExecuteAutomations } from "./automation-engine";
 
 // Helper function to trigger automations
 async function triggerAutomationEvent(
@@ -2312,6 +2313,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/boards/dynamic/:boardId/items", authMiddleware, async (req: AuthRequest, res) => {
     const data = insertDynamicItemSchema.parse({ ...req.body, boardId: req.params.boardId });
     const item = await storage.createDynamicItem(data);
+    
+    // Trigger on_item_create automations
+    checkAndExecuteAutomations(req.params.boardId, {
+      eventType: "item_created",
+      itemId: item.id,
+      userId: req.user!.id,
+    }).catch(err => {
+      console.error("Error triggering item create automations:", err);
+    });
+    
     res.json(item);
   });
 
@@ -2339,7 +2350,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/items/:itemId/values", authMiddleware, async (req: AuthRequest, res) => {
     const data = insertDynamicFieldValueSchema.parse({ ...req.body, itemId: req.params.itemId });
+    
+    // Get old value for comparison
+    const oldValueRecord = await storage.getDynamicFieldValue(req.params.itemId, data.fieldId);
+    const oldValue = oldValueRecord?.value;
+    
     const value = await storage.setDynamicFieldValue(data);
+    
+    // Get the item to find its board
+    const item = await storage.getDynamicItemById(req.params.itemId);
+    
+    if (item) {
+      // Trigger on_field_change automations
+      checkAndExecuteAutomations(item.boardId, {
+        eventType: "field_changed",
+        itemId: item.id,
+        fieldId: data.fieldId,
+        oldValue,
+        newValue: data.value,
+        userId: req.user!.id,
+      }).catch(err => {
+        console.error("Error triggering field change automations:", err);
+      });
+    }
+    
     res.json(value);
   });
 
