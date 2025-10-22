@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
+import arcanaLogo from "@assets/arcana_logo_512x512_1761101828930.png";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -54,8 +55,13 @@ export default function Login() {
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-background to-muted">
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="space-y-1">
-          <div className="flex items-center justify-center mb-4">
-            <div className="h-16 w-full rounded-lg bg-gradient-to-r from-violet-600 via-purple-600 to-amber-500 opacity-10" />
+          <div className="flex items-center justify-center mb-6">
+            <img 
+              src={arcanaLogo} 
+              alt="Arcana Sigil" 
+              className="w-24 h-24 arcana-logo-pulse"
+              data-testid="logo-login"
+            />
           </div>
           <CardTitle className="text-2xl font-bold text-center">Welcome to Arcana</CardTitle>
           <CardDescription className="text-center">
