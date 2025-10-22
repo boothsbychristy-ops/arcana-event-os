@@ -51,6 +51,7 @@ import type {
   DynamicFieldValue, InsertDynamicFieldValue,
   BoardAutomationRule, InsertBoardAutomationRule,
   BoardAutomationLog, InsertBoardAutomationLog,
+  BoardView, InsertBoardView,
   AgentRule, InsertAgentRule,
   AgentNotificationLog, InsertAgentNotificationLog,
 } from "@shared/schema";
@@ -389,6 +390,14 @@ export interface IStorage {
   // Board Automation Logs
   getAutomationLogs(ruleId: string, limit?: number): Promise<BoardAutomationLog[]>;
   createAutomationLog(log: InsertBoardAutomationLog): Promise<BoardAutomationLog>;
+  
+  // Board Views (Phase 12.4)
+  getBoardViews(boardId: string): Promise<BoardView[]>;
+  getBoardView(id: string): Promise<BoardView | undefined>;
+  createBoardView(view: InsertBoardView): Promise<BoardView>;
+  updateBoardView(id: string, view: Partial<InsertBoardView>): Promise<BoardView | undefined>;
+  deleteBoardView(id: string, boardId: string): Promise<boolean>;
+  setDefaultBoardView(id: string, boardId: string): Promise<BoardView | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2216,6 +2225,77 @@ export class DatabaseStorage implements IStorage {
       .values(insertLog)
       .returning();
     return log;
+  }
+
+  // Board Views (Phase 12.4)
+  async getBoardViews(boardId: string): Promise<BoardView[]> {
+    return db.select().from(schema.boardViews)
+      .where(eq(schema.boardViews.boardId, boardId))
+      .orderBy(desc(schema.boardViews.isDefault), schema.boardViews.createdAt);
+  }
+
+  async getBoardView(id: string): Promise<BoardView | undefined> {
+    const [view] = await db.select().from(schema.boardViews)
+      .where(eq(schema.boardViews.id, id));
+    return view;
+  }
+
+  async createBoardView(insertView: InsertBoardView): Promise<BoardView> {
+    // If this is set as default, unset all other defaults for this board
+    if (insertView.isDefault) {
+      await db.update(schema.boardViews)
+        .set({ isDefault: false })
+        .where(eq(schema.boardViews.boardId, insertView.boardId));
+    }
+    
+    const [view] = await db.insert(schema.boardViews)
+      .values(insertView)
+      .returning();
+    return view;
+  }
+
+  async updateBoardView(id: string, viewData: Partial<InsertBoardView>): Promise<BoardView | undefined> {
+    // If setting as default, unset all other defaults for this board
+    if (viewData.isDefault) {
+      const currentView = await this.getBoardView(id);
+      if (currentView) {
+        await db.update(schema.boardViews)
+          .set({ isDefault: false })
+          .where(eq(schema.boardViews.boardId, currentView.boardId));
+      }
+    }
+    
+    const [view] = await db.update(schema.boardViews)
+      .set({ ...viewData, updatedAt: new Date() })
+      .where(eq(schema.boardViews.id, id))
+      .returning();
+    return view;
+  }
+
+  async deleteBoardView(id: string, boardId: string): Promise<boolean> {
+    const result = await db.delete(schema.boardViews)
+      .where(and(
+        eq(schema.boardViews.id, id),
+        eq(schema.boardViews.boardId, boardId)
+      ));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async setDefaultBoardView(id: string, boardId: string): Promise<BoardView | undefined> {
+    // Unset all defaults for this board
+    await db.update(schema.boardViews)
+      .set({ isDefault: false })
+      .where(eq(schema.boardViews.boardId, boardId));
+    
+    // Set this view as default
+    const [view] = await db.update(schema.boardViews)
+      .set({ isDefault: true, updatedAt: new Date() })
+      .where(and(
+        eq(schema.boardViews.id, id),
+        eq(schema.boardViews.boardId, boardId)
+      ))
+      .returning();
+    return view;
   }
 }
 
