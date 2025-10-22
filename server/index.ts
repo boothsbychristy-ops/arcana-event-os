@@ -170,6 +170,10 @@ app.use((req, res, next) => {
       logger.error({ err }, "Error running scheduled automations");
     });
   });
+  
+  // Initialize board automation scheduler
+  const { initializeAutomationScheduler } = await import("./automation-scheduler");
+  initializeAutomationScheduler();
 })();
 
 // Export app for testing
