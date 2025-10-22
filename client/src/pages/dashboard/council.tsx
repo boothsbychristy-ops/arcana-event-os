@@ -18,6 +18,7 @@ import { format } from "date-fns";
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import { Clock, TrendingUp, RefreshCw, Eye } from "lucide-react";
+import arcanaWatermark from "@assets/arcana_logo_512x512_1761101828930.png";
 
 export default function Council() {
   const queryClient = useQueryClient();
@@ -498,6 +499,14 @@ export default function Council() {
           </table>
         </div>
       </GlassCard>
+      
+      {/* Arcana watermark */}
+      <img 
+        src={arcanaWatermark} 
+        alt="" 
+        className="arcana-watermark w-64 h-64"
+        aria-hidden="true"
+      />
     </div>
   );
 }
