@@ -52,6 +52,7 @@ import {
   insertDynamicFieldValueSchema,
   insertBoardAutomationRuleSchema,
   insertBoardAutomationLogSchema,
+  insertBoardViewSchema,
 } from "@shared/schema";
 import {
   hashPassword,
@@ -2529,6 +2530,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
     const logs = await storage.getAutomationLogs(req.params.ruleId, limit);
     res.json(logs);
+  });
+
+  // Board Views API (Phase 12.4 - Multiple Views)
+  app.get("/api/boards/:boardId/views", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const views = await storage.getBoardViews(req.params.boardId);
+      res.json(views);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch board views" });
+    }
+  });
+
+  app.post("/api/boards/:boardId/views", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertBoardViewSchema.parse({
+        ...req.body,
+        boardId: req.params.boardId,
+      });
+      const view = await storage.createBoardView(data);
+      res.json(view);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create board view" });
+    }
+  });
+
+  app.get("/api/views/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const view = await storage.getBoardView(req.params.id);
+      if (!view) {
+        return res.status(404).json({ error: "View not found" });
+      }
+      res.json(view);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch view" });
+    }
+  });
+
+  app.patch("/api/views/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const data = insertBoardViewSchema.partial().parse(req.body);
+      const view = await storage.updateBoardView(req.params.id, data);
+      
+      if (!view) {
+        return res.status(404).json({ error: "View not found" });
+      }
+      
+      res.json(view);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update view" });
+    }
+  });
+
+  app.delete("/api/views/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const boardId = req.query.boardId as string;
+      if (!boardId) {
+        return res.status(400).json({ error: "boardId query parameter required" });
+      }
+      
+      const success = await storage.deleteBoardView(req.params.id, boardId);
+      if (!success) {
+        return res.status(404).json({ error: "View not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete view" });
+    }
+  });
+
+  app.patch("/api/views/:id/set-default", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const boardId = req.body.boardId as string;
+      if (!boardId) {
+        return res.status(400).json({ error: "boardId required in request body" });
+      }
+      
+      const view = await storage.setDefaultBoardView(req.params.id, boardId);
+      if (!view) {
+        return res.status(404).json({ error: "View not found" });
+      }
+      
+      res.json(view);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to set default view" });
+    }
   });
 
   // Mount Council routes (admin only)
