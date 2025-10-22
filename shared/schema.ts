@@ -702,6 +702,8 @@ export const insertDynamicBoardSchema = createInsertSchema(dynamicBoards).omit({
 export const insertDynamicFieldSchema = createInsertSchema(dynamicFields).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertDynamicItemSchema = createInsertSchema(dynamicItems).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertDynamicFieldValueSchema = createInsertSchema(dynamicFieldValues).omit({ id: true, updatedAt: true });
+export const insertBoardAutomationRuleSchema = createInsertSchema(boardAutomationRules).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBoardAutomationLogSchema = createInsertSchema(boardAutomationLogs).omit({ id: true, triggeredAt: true });
 export const insertTaskCommentSchema = createInsertSchema(taskComments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTaskAttachmentSchema = createInsertSchema(taskAttachments).omit({ id: true, createdAt: true });
 export const insertSubtaskSchema = createInsertSchema(subtasks).omit({ id: true, createdAt: true, completedAt: true });
@@ -799,6 +801,12 @@ export type InsertDynamicItem = z.infer<typeof insertDynamicItemSchema>;
 
 export type DynamicFieldValue = typeof dynamicFieldValues.$inferSelect;
 export type InsertDynamicFieldValue = z.infer<typeof insertDynamicFieldValueSchema>;
+
+export type BoardAutomationRule = typeof boardAutomationRules.$inferSelect;
+export type InsertBoardAutomationRule = z.infer<typeof insertBoardAutomationRuleSchema>;
+
+export type BoardAutomationLog = typeof boardAutomationLogs.$inferSelect;
+export type InsertBoardAutomationLog = z.infer<typeof insertBoardAutomationLogSchema>;
 
 export type TaskStatus = typeof taskStatuses.$inferSelect;
 export type InsertTaskStatus = z.infer<typeof insertTaskStatusSchema>;
