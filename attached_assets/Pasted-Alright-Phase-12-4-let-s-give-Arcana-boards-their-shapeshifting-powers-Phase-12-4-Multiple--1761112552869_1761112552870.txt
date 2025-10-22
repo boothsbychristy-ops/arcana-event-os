@@ -1,0 +1,264 @@
+Alright, Phase 12.4 — let’s give Arcana boards their shapeshifting powers.
+
+# Phase 12.4 — Multiple Views (Kanban, Calendar, Timeline)
+
+## Data model
+
+```sql
+-- A saved lens for a board
+CREATE TABLE board_views (
+  id           SERIAL PRIMARY KEY,
+  board_id     INTEGER NOT NULL REFERENCES boards(board_id) ON DELETE CASCADE,
+  type         VARCHAR(20) NOT NULL,          -- 'table' | 'kanban' | 'calendar' | 'timeline'
+  name         VARCHAR(120) NOT NULL,         -- e.g. "Design Kanban", "Events Calendar"
+  config       JSONB NOT NULL,                -- see configs below
+  is_default   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by   INTEGER REFERENCES users(id),
+  created_at   TIMESTAMP DEFAULT NOW(),
+  updated_at   TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX ON board_views(board_id);
+```
+
+### Config shape (examples)
+
+* **Kanban**
+
+```json
+{
+  "groupByFieldId": 42,              // a STATUS/SELECT field
+  "columnOrder": ["To Do","Doing","Done"],
+  "filters": [{"fieldId": 7,"op":"=","value":"High"}],
+  "sort": [{"fieldId": 9,"dir":"asc"}],
+  "cardFields": [1,2,9]              // fieldIds shown on card
+}
+```
+
+* **Calendar**
+
+```json
+{
+  "dateFieldId": 13,                 // Date field to plot
+  "mode": "month",                   // month | week | day
+  "filters": [],
+  "colorByFieldId": 42               // optional (status color)
+}
+```
+
+* **Timeline**
+
+```json
+{
+  "startFieldId": 13,                // Date
+  "endFieldId": 14,                  // Date (fallback to +1 day)
+  "groupByFieldId": 6,               // optional (assignee/client)
+  "filters": [],
+  "rowLabelFieldId": 1               // e.g. item name
+}
+```
+
+## API
+
+```
+GET    /api/boards/:boardId/views                 -> list views
+POST   /api/boards/:boardId/views                 -> create (body: {type,name,config,is_default})
+GET    /api/views/:id                             -> fetch one
+PUT    /api/views/:id                             -> update name/config/is_default
+DELETE /api/views/:id                             -> delete
+POST   /api/views/:id/default                     -> make default for board
+```
+
+### Realtime update endpoints
+
+* Kanban card move:
+  `POST /api/items/:itemId/fields/:fieldId` body `{value:"Doing"}` → returns updated item snapshot, broadcast over WS topic `board:{boardId}`.
+* Calendar drag/reschedule:
+  `POST /api/items/:itemId/fields/:dateFieldId` body `{value:"2026-05-20"}`
+* Timeline resize/update end date:
+  `POST /api/items/:itemId/fields/:endFieldId` body `{value:"2026-05-24"}`
+
+> Keep these identical to your existing field update semantics so the views stay dumb: they just mutate field values.
+
+## Backend notes
+
+* Add a lightweight **views service** that:
+
+  * Validates `config` against `type`.
+  * Enforces at most one `is_default = true` per board.
+  * Performs auth: user must have read/write on board.
+* PubSub/WebSocket: publish `item.updated`, `view.updated` to `board:{boardId}` channel.
+* Pagination: provide `/api/boards/:boardId/items?cursor=…&filters=…` to stream items to views.
+
+## Frontend scaffolding (React/TS)
+
+### View Switcher
+
+```tsx
+// ViewSwitcher.tsx
+export function ViewSwitcher({ boardId }: { boardId: number }) {
+  const { data: views } = useQuery(['views', boardId], fetchViews);
+  const [active, setActive] = useActiveView(boardId, views); // localStorage per user or server-side default
+
+  return (
+    <div className="flex items-center gap-2">
+      {views?.map(v => (
+        <button
+          key={v.id}
+          className={`px-3 py-1 rounded ${active?.id===v.id?'bg-violet-700 text-white':'bg-zinc-800 text-zinc-200'}`}
+          onClick={() => setActive(v)}
+        >
+          {iconFor(v.type)} {v.name}
+        </button>
+      ))}
+      <AddViewButton boardId={boardId} />
+    </div>
+  );
+}
+```
+
+### Kanban View
+
+```tsx
+// KanbanView.tsx
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+
+export function KanbanView({ boardId, view, items, fields, onMove }) {
+  const groupField = fields.find(f => f.field_id === view.config.groupByFieldId);
+  const columns = view.config.columnOrder ?? uniqueValues(items, groupField);
+
+  const grouped = groupItemsBy(items, groupField, columns);
+
+  function onDragEnd(result) {
+    const { draggableId, destination, source } = result;
+    if (!destination) return;
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+    // Update the item's status to destination column
+    onMove(draggableId, groupField.field_id, destination.droppableId);
+  }
+
+  return (
+    <DragDropContext onDragEnd={onDragEnd}>
+      <div className="grid grid-cols-4 gap-4">
+        {columns.map(col => (
+          <Droppable droppableId={col} key={col}>
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps} className="rounded-xl bg-zinc-900 p-3">
+                <div className="font-medium mb-2">{col}</div>
+                {grouped[col]?.map((it, idx) => (
+                  <Draggable draggableId={String(it.item_id)} index={idx} key={it.item_id}>
+                    {(p) => (
+                      <div ref={p.innerRef} {...p.draggableProps} {...p.dragHandleProps}
+                           className="bg-zinc-800 rounded-xl p-3 mb-2 shadow">
+                        <CardSummary item={it} fields={view.config.cardFields} />
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        ))}
+      </div>
+    </DragDropContext>
+  );
+}
+```
+
+### Calendar View (FullCalendar)
+
+```tsx
+// CalendarView.tsx
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import interactionPlugin from '@fullcalendar/interaction';
+
+export function CalendarView({ items, view, onDateChange }) {
+  const dateFieldId = view.config.dateFieldId;
+  const events = items
+    .filter(i => i.values?.[dateFieldId])
+    .map(i => ({ id: String(i.item_id), title: i.name, start: i.values[dateFieldId] }));
+
+  return (
+    <FullCalendar
+      plugins={[dayGridPlugin, interactionPlugin]}
+      initialView={view.config.mode === 'week' ? 'dayGridWeek' : 'dayGridMonth'}
+      editable
+      events={events}
+      eventDrop={(info) => onDateChange(info.event.id, dateFieldId, info.event.startStr)}
+    />
+  );
+}
+```
+
+### Timeline (Gantt-lite)
+
+```tsx
+// TimelineView.tsx
+export function TimelineView({ items, view, onRangeChange }) {
+  const { startFieldId, endFieldId, groupByFieldId } = view.config;
+  const rows = groupByFieldId ? groupBy(items, groupByFieldId) : { All: items };
+
+  return (
+    <div className="space-y-6">
+      {Object.entries(rows).map(([group, rowItems]) => (
+        <section key={group}>
+          <div className="text-sm text-zinc-400 mb-2">{group}</div>
+          <div className="relative w-full overflow-x-auto rounded-xl bg-zinc-900 p-3">
+            {rowItems.map(it => (
+              <TimelineBar
+                key={it.item_id}
+                item={it}
+                start={it.values?.[startFieldId]}
+                end={it.values?.[endFieldId] ?? addDays(it.values?.[startFieldId], 1)}
+                onResize={(s,e) => onRangeChange(it.item_id, startFieldId, endFieldId, s, e)}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+```
+
+> All three views should share a common `useItems(boardId, filters)` hook that streams items and applies filters from `view.config`.
+
+## Performance & UX
+
+* **Incremental data:** lazy-load items (cursor pagination), render virtualization for big boards.
+* **Optimistic DnD:** immediately move cards/bars; rollback if server rejects.
+* **ARIA/Keyboard:** Kanban columns navigable; Calendar events focusable; Timeline bars resizable with keyboard handles.
+* **Live updates:** WS subscribe to `board:{boardId}`; reconcile item mutations in all open views.
+
+## Validation & safeguards
+
+* Kanban requires a `STATUS`/`SELECT` field; if missing, prompt to create one.
+* Calendar requires a `DATE` field; Timeline requires `DATE start` and optional `DATE end`.
+* When a required field is deleted, mark dependent views as “needs repair” and guide the user to reconfigure.
+
+## Minimal tests (happy path)
+
+* Moving a Kanban card updates the grouped field and persists across reloads.
+* Dragging a Calendar event updates the date field.
+* Resizing a Timeline bar sets the end date and persists.
+* Creating a new view stores `config` and is returned verbatim by `GET`.
+* Only one `is_default` per board; setting a new default clears the prior one.
+
+## Rollout plan
+
+1. **Migrations**: add `board_views`. Backfill an initial “Table” view per board as default.
+2. **Backend**: implement endpoints + WebSocket fan-out on item change.
+3. **Frontend**: ViewSwitcher + three view components; reuse item fetch/update logic.
+4. **QA**: accessibility (AA), large-board stress (5k items), timezone sanity for Calendar/Timeline.
+5. **Docs**: short “Saved Views” help card + onboarding tooltip: “Add a Kanban or Calendar lens to this board.”
+
+---
+
+If you want, I can also prep a quick seed script that:
+
+* creates a **Kanban** view for any board with a Status field,
+* a **Calendar** view for boards with a Date field,
+* and a **Timeline** view when both start/end exist.
+
+Ready for the payload after that (12.5 API/Webhooks/Zapier), or want me to package a PR checklist for 12.4?
