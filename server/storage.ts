@@ -49,6 +49,8 @@ import type {
   DynamicField, InsertDynamicField,
   DynamicItem, InsertDynamicItem,
   DynamicFieldValue, InsertDynamicFieldValue,
+  BoardAutomationRule, InsertBoardAutomationRule,
+  BoardAutomationLog, InsertBoardAutomationLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -355,6 +357,18 @@ export interface IStorage {
   getDynamicFieldValue(itemId: string, fieldId: string): Promise<DynamicFieldValue | undefined>;
   setDynamicFieldValue(value: InsertDynamicFieldValue): Promise<DynamicFieldValue>;
   deleteDynamicFieldValue(itemId: string, fieldId: string): Promise<boolean>;
+  
+  // Board Automation Rules (Phase 13.0)
+  getBoardAutomationRules(boardId: string): Promise<BoardAutomationRule[]>;
+  getAllAutomationRules(ownerId: string): Promise<BoardAutomationRule[]>;
+  getAutomationRule(id: string): Promise<BoardAutomationRule | undefined>;
+  createAutomationRule(rule: InsertBoardAutomationRule): Promise<BoardAutomationRule>;
+  updateAutomationRule(id: string, rule: Partial<InsertBoardAutomationRule>): Promise<BoardAutomationRule | undefined>;
+  deleteAutomationRule(id: string, ownerId: string): Promise<boolean>;
+  
+  // Board Automation Logs
+  getAutomationLogs(ruleId: string, limit?: number): Promise<BoardAutomationLog[]>;
+  createAutomationLog(log: InsertBoardAutomationLog): Promise<BoardAutomationLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2004,6 +2018,69 @@ export class DatabaseStorage implements IStorage {
         eq(schema.dynamicFieldValues.fieldId, fieldId)
       ));
     return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Board Automation Rules (Phase 13.0)
+  async getBoardAutomationRules(boardId: string): Promise<BoardAutomationRule[]> {
+    return db.select().from(schema.boardAutomationRules)
+      .where(eq(schema.boardAutomationRules.boardId, boardId))
+      .orderBy(desc(schema.boardAutomationRules.createdAt));
+  }
+
+  async getAllAutomationRules(ownerId: string): Promise<BoardAutomationRule[]> {
+    return db.select().from(schema.boardAutomationRules)
+      .where(eq(schema.boardAutomationRules.ownerId, ownerId))
+      .orderBy(desc(schema.boardAutomationRules.createdAt));
+  }
+
+  async getAutomationRule(id: string): Promise<BoardAutomationRule | undefined> {
+    const [rule] = await db.select().from(schema.boardAutomationRules)
+      .where(eq(schema.boardAutomationRules.id, id));
+    return rule;
+  }
+
+  async createAutomationRule(insertRule: InsertBoardAutomationRule): Promise<BoardAutomationRule> {
+    const [rule] = await db.insert(schema.boardAutomationRules)
+      .values(insertRule)
+      .returning();
+    return rule;
+  }
+
+  async updateAutomationRule(id: string, ruleData: Partial<InsertBoardAutomationRule>): Promise<BoardAutomationRule | undefined> {
+    const [rule] = await db.update(schema.boardAutomationRules)
+      .set(ruleData)
+      .where(eq(schema.boardAutomationRules.id, id))
+      .returning();
+    return rule;
+  }
+
+  async deleteAutomationRule(id: string, ownerId: string): Promise<boolean> {
+    const result = await db.delete(schema.boardAutomationRules)
+      .where(and(
+        eq(schema.boardAutomationRules.id, id),
+        eq(schema.boardAutomationRules.ownerId, ownerId)
+      ));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Board Automation Logs
+  async getAutomationLogs(ruleId: string, limit?: number): Promise<BoardAutomationLog[]> {
+    let query = db.select().from(schema.boardAutomationLogs)
+      .where(eq(schema.boardAutomationLogs.ruleId, ruleId))
+      .orderBy(desc(schema.boardAutomationLogs.triggeredAt)) as any;
+    
+    if (limit) {
+      query = query.limit(limit);
+    }
+    
+    return query;
+  }
+
+  async createAutomationLog(insertLog: InsertBoardAutomationLog): Promise<BoardAutomationLog> {
+    const [log] = await db.insert(schema.boardAutomationLogs)
+      .values(insertLog)
+      .returning();
+    return log;
   }
 }
 
