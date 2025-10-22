@@ -1712,6 +1712,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Agent Rules routes (Phase 12.3 - Smart Agents & Follow-Up)
+  app.get("/api/agent-rules", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const rules = await storage.getAllAgentRules(req.user!.id);
+      res.json(rules);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch agent rules" });
+    }
+  });
+
+  app.post("/api/agent-rules", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.createAgentRule({
+        ...req.body,
+        createdBy: req.user!.id,
+      });
+      res.json(rule);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create agent rule" });
+    }
+  });
+
+  app.patch("/api/agent-rules/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.updateAgentRule(req.params.id, req.body);
+      if (!rule) {
+        return res.status(404).json({ error: "Agent rule not found" });
+      }
+      res.json(rule);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update agent rule" });
+    }
+  });
+
+  app.patch("/api/agent-rules/:id/toggle", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const rule = await storage.toggleAgentRule(req.params.id);
+      if (!rule) {
+        return res.status(404).json({ error: "Agent rule not found" });
+      }
+      res.json(rule);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to toggle agent rule" });
+    }
+  });
+
+  app.delete("/api/agent-rules/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const success = await storage.deleteAgentRule(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Agent rule not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete agent rule" });
+    }
+  });
+
+  // Agent Notification Logs routes (Phase 12.3 - Smart Agents & Follow-Up)
+  app.get("/api/agent-notifications", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.query.userId as string | undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const logs = await storage.getAgentNotificationLogs(userId || req.user!.id, limit);
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch agent notifications" });
+    }
+  });
+
+  app.get("/api/agent-notifications/unread", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const notifications = await storage.getUserUnreadNotifications(req.user!.id);
+      res.json(notifications);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch unread notifications" });
+    }
+  });
+
+  app.patch("/api/agent-notifications/:id/dismiss", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const notification = await storage.dismissNotification(req.params.id);
+      if (!notification) {
+        return res.status(404).json({ error: "Notification not found" });
+      }
+      res.json(notification);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to dismiss notification" });
+    }
+  });
+
   // Analytics routes
   app.get("/api/analytics/summary", authMiddleware, async (req: AuthRequest, res) => {
     try {
