@@ -63,7 +63,7 @@ export function TimelineView({
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 space-y-2">
                       <h3 className="font-semibold" data-testid={`timeline-title-${item.id}`}>
-                        {item.title}
+                        {item.name}
                       </h3>
                       {dateValue && (
                         <div className="text-sm text-muted-foreground" data-testid={`timeline-date-${item.id}`}>

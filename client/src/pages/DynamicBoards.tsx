@@ -36,6 +36,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { AutomationsList } from "@/components/AutomationsList";
+import { BoardViewSwitcher } from "@/components/BoardViewSwitcher";
+import { KanbanView } from "@/components/KanbanView";
+import { CalendarView } from "@/components/CalendarView";
+import { TimelineView } from "@/components/TimelineView";
 
 type FieldType = "text" | "number" | "date" | "status" | "dropdown" | "checkbox";
 
@@ -170,10 +174,13 @@ function EditableCell({
   );
 }
 
+type ViewType = "table" | "kanban" | "calendar" | "timeline";
+
 export default function DynamicBoards() {
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
   const [boardDialogOpen, setBoardDialogOpen] = useState(false);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
+  const [currentView, setCurrentView] = useState<ViewType>("table");
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -539,6 +546,13 @@ export default function DynamicBoards() {
                       <Plus className="h-4 w-4 mr-2" />
                       Add Item
                     </Button>
+                    {selectedBoardId && (
+                      <BoardViewSwitcher
+                        boardId={selectedBoardId}
+                        currentView={currentView}
+                        onViewChange={(viewType) => setCurrentView(viewType)}
+                      />
+                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -562,7 +576,7 @@ export default function DynamicBoards() {
                       <div className="text-center py-12 text-muted-foreground">
                         <p>No columns yet. Add your first column to get started.</p>
                       </div>
-                    ) : (
+                    ) : currentView === "table" ? (
                       <div className="overflow-x-auto">
                         <DndContext
                           sensors={sensors}
@@ -604,7 +618,31 @@ export default function DynamicBoards() {
                           </table>
                         </DndContext>
                       </div>
-                    )}
+                    ) : currentView === "kanban" ? (
+                      <KanbanView
+                        items={items}
+                        fields={fields}
+                        fieldValues={fieldValues}
+                        onItemUpdate={(itemId, updates) => console.log("Update item:", itemId, updates)}
+                        onAddItem={(status) => selectedBoardId && createItemMutation.mutate(selectedBoardId)}
+                        statusField={fields.find(f => f.type === "status")}
+                      />
+                    ) : currentView === "calendar" ? (
+                      <CalendarView
+                        items={items}
+                        fields={fields}
+                        fieldValues={fieldValues}
+                        dateField={fields.find(f => f.type === "date")}
+                      />
+                    ) : currentView === "timeline" ? (
+                      <TimelineView
+                        items={items}
+                        fields={fields}
+                        fieldValues={fieldValues}
+                        dateField={fields.find(f => f.type === "date")}
+                        statusField={fields.find(f => f.type === "status")}
+                      />
+                    ) : null}
                   </TabsContent>
 
                   <TabsContent value="automations">

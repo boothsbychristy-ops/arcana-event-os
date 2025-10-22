@@ -36,7 +36,7 @@ export function CalendarView({
 
     return {
       id: item.id,
-      title: item.title,
+      title: item.name,
       start: dateValue || new Date().toISOString(),
       allDay: true,
       extendedProps: {

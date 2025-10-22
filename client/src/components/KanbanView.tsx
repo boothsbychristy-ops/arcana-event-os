@@ -118,7 +118,7 @@ export function KanbanView({
                               <CardContent className="p-3">
                                 <div className="space-y-2">
                                   <div className="font-medium text-sm" data-testid={`card-title-${item.id}`}>
-                                    {item.title}
+                                    {item.name}
                                   </div>
                                   {fields
                                     .filter(

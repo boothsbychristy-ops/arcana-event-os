@@ -117,7 +117,18 @@ Preferred communication style: Simple, everyday language.
 
 ### Recent Changes
 
-**Phase 12.3 - Smart Agents & Follow-Up System (Current)**
+**Phase 12.4 - Multiple Views (Current)**
+- Added boardViews table to persist user-created custom views
+- Implemented view management system with create/delete/set-default operations
+- Created BoardViewSwitcher component for view selection and management
+- Built KanbanView with drag-and-drop cards organized by status field
+- Built CalendarView with FullCalendar integration for date-based items
+- Built TimelineView with Gantt-style horizontal timeline visualization
+- Integrated view switcher and conditional rendering in DynamicBoards.tsx
+- View types: table (default), kanban, calendar, timeline
+- Each board can have multiple named views with different configurations
+
+**Phase 12.3 - Smart Agents & Follow-Up System**
 - Added agentRules and agentNotificationLogs tables for proactive reminders
 - Implemented agent evaluation engine with cron-based checking (every 5 minutes)
 - Created Agent Settings UI page for managing agent rules
