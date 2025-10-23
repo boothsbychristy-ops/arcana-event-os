@@ -151,6 +151,20 @@ npm run db:push
 
 ## 🚢 Deployment
 
+### Railway Deployment (Recommended)
+
+Deploy to Railway in 5 minutes:
+
+1. Go to https://railway.app
+2. Create new project from GitHub repo: `boothsbychristy-ops/arcana-event-os`
+3. Add PostgreSQL database
+4. Configure environment variables (see `.env.railway`)
+5. Deploy automatically
+
+**Quick Start:** See [RAILWAY_QUICKSTART.md](./RAILWAY_QUICKSTART.md)
+
+**Full Guide:** See [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md)
+
 ### Replit Deployment
 
 This project is configured for deployment on Replit with autoscale:
